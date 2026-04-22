@@ -3,22 +3,54 @@
 @tailwind utilities;
 
 :root {
-  color: #e2e8f0;
-  background-color: #020617;
-  font-family: Inter, system-ui, sans-serif;
+  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  color-scheme: dark;
+  --bg-primary: #02040a;
+  --bg-secondary: rgba(16, 10, 55, 0.78);
+  --bg-panel: rgba(255, 255, 255, 0.08);
+  --bg-soft: rgba(47, 107, 255, 0.12);
+  --text-primary: #ffffff;
+  --text-secondary: #cad4f5;
+  --text-muted: #8bb6ff;
+  --border-strong: rgba(124, 115, 255, 0.34);
+  --border-soft: rgba(255, 255, 255, 0.12);
+  --shadow-color: rgba(9, 13, 31, 0.55);
+  --gradient-main: radial-gradient(circle at top left, rgba(91, 77, 255, 0.34), transparent 34%),
+    radial-gradient(circle at top right, rgba(47, 107, 255, 0.2), transparent 28%),
+    linear-gradient(180deg, #02040a 0%, #0c1230 52%, #02040a 100%);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg-primary: #f5f7ff;
+  --bg-secondary: rgba(255, 255, 255, 0.82);
+  --bg-panel: rgba(91, 77, 255, 0.08);
+  --bg-soft: rgba(47, 107, 255, 0.1);
+  --text-primary: #080b16;
+  --text-secondary: #1f2750;
+  --text-muted: #3423c8;
+  --border-strong: rgba(52, 35, 200, 0.25);
+  --border-soft: rgba(8, 11, 22, 0.12);
+  --shadow-color: rgba(91, 77, 255, 0.14);
+  --gradient-main: radial-gradient(circle at top left, rgba(91, 77, 255, 0.18), transparent 34%),
+    radial-gradient(circle at top right, rgba(47, 107, 255, 0.12), transparent 28%),
+    linear-gradient(180deg, #f5f7ff 0%, #ffffff 48%, #edf2ff 100%);
 }
 
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background:
-    radial-gradient(circle at top, rgba(34, 197, 94, 0.18), transparent 30%),
-    linear-gradient(180deg, #020617 0%, #0f172a 100%);
+  background: var(--gradient-main);
+  color: var(--text-primary);
 }
 
 * {
   box-sizing: border-box;
+}
+
+#root {
+  min-height: 100vh;
 }
 
 a {
