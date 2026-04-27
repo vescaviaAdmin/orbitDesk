@@ -73,6 +73,10 @@ export function listProjects() {
   return request("/admin/projects");
 }
 
+export function listRequests() {
+  return request("/admin/requests");
+}
+
 export function getProject(projectId) {
   return request(`/admin/projects/${projectId}`);
 }

@@ -25,6 +25,13 @@ export function requestClientOtp(credentials) {
   });
 }
 
+export function loginWithCredentials(credentials) {
+  return request("/auth/login", {
+    method: "POST",
+    body: JSON.stringify(credentials),
+  });
+}
+
 export function loginClient(credentials) {
   return request("/auth/client/login", {
     method: "POST",

@@ -46,3 +46,17 @@ export function raiseTicket(projectId, ticket) {
     body: JSON.stringify(ticket),
   });
 }
+
+export function raiseRequest(projectId, payload) {
+  return request(`/member/projects/${projectId}/requests`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateMemberTicketStatus(ticketId, status) {
+  return request(`/member/tickets/${ticketId}/status`, {
+    method: "PUT",
+    body: JSON.stringify({ status }),
+  });
+}

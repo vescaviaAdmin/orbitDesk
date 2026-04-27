@@ -1,7 +1,25 @@
 import Client from "../../models/Client.js";
+import Member from "../../models/Member.js";
 import { sendClientOtp } from "../mail/mail.service.js";
 import { compareSecret, hashSecret } from "../../utils/password.js";
 import { createNumericOtp, createSessionToken } from "../../utils/tokens.js";
+
+async function issueClientOtp(fastify, client) {
+  const otp = createNumericOtp();
+  client.otp = {
+    codeHash: await hashSecret(otp),
+    expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    verifiedAt: null,
+  };
+  await client.save();
+  await sendClientOtp(fastify, client, otp);
+
+  return {
+    requiresOtp: true,
+    role: "client",
+    message: "OTP sent to the client email",
+  };
+}
 
 async function clientAuthRoutes(fastify) {
   fastify.post("/auth/client/register", async (request, reply) => {
@@ -44,18 +62,44 @@ async function clientAuthRoutes(fastify) {
       throw fastify.httpErrors.unauthorized("Invalid client credentials");
     }
 
-    const otp = createNumericOtp();
-    client.otp = {
-      codeHash: await hashSecret(otp),
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-      verifiedAt: null,
-    };
-    await client.save();
-    await sendClientOtp(fastify, client, otp);
+    return issueClientOtp(fastify, client);
+  });
 
-    return {
-      message: "OTP sent to client email",
-    };
+  fastify.post("/auth/login", async (request) => {
+    const { email, password } = request.body || {};
+
+    if (!email || !password) {
+      throw fastify.httpErrors.badRequest("email and password are required");
+    }
+
+    const [member, client] = await Promise.all([Member.findOne({ email }), Client.findOne({ email })]);
+    const memberIsValid =
+      member && member.status === "active" && member.passwordHash && (await compareSecret(password, member.passwordHash));
+    const clientIsValid =
+      client && client.status === "active" && client.passwordHash && (await compareSecret(password, client.passwordHash));
+
+    if (memberIsValid && clientIsValid) {
+      throw fastify.httpErrors.conflict("Email is assigned to both member and client accounts. Contact admin.");
+    }
+
+    if (memberIsValid) {
+      return {
+        token: createSessionToken({ sub: member.id, role: "member" }),
+        role: "member",
+        redirectTo: "/member/dashboard",
+        user: {
+          id: member.id,
+          name: member.name,
+          email: member.email,
+        },
+      };
+    }
+
+    if (clientIsValid) {
+      return issueClientOtp(fastify, client);
+    }
+
+    throw fastify.httpErrors.unauthorized("Invalid login credentials");
   });
 
   fastify.post("/auth/client/login", async (request) => {

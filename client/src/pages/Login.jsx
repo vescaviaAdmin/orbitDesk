@@ -1,6 +1,6 @@
 import { useState } from "react";
 import AuthShell from "../components/auth/AuthShell";
-import { loginClient, loginMember, requestClientOtp } from "../api/auth";
+import { loginClient, loginWithCredentials } from "../api/auth";
 
 function persistSession(session) {
   localStorage.setItem("orbitdesk_session", JSON.stringify(session));
@@ -9,7 +9,6 @@ function persistSession(session) {
 }
 
 function Login() {
-  const [mode, setMode] = useState("client");
   const [clientOtpSent, setClientOtpSent] = useState(false);
   const [form, setForm] = useState({ email: "", password: "", otp: "" });
   const [status, setStatus] = useState("");
@@ -23,23 +22,6 @@ function Login() {
     }));
   }
 
-  async function handleClientOtp(event) {
-    event.preventDefault();
-    setLoading(true);
-    setError("");
-    setStatus("");
-
-    try {
-      await requestClientOtp({ email: form.email, password: form.password });
-      setClientOtpSent(true);
-      setStatus("OTP sent to the client email.");
-    } catch (requestError) {
-      setError(requestError.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
   async function handleLogin(event) {
     event.preventDefault();
     setLoading(true);
@@ -47,12 +29,24 @@ function Login() {
     setStatus("");
 
     try {
-      const session =
-        mode === "client"
-          ? await loginClient(form)
-          : await loginMember({ email: form.email, password: form.password });
+      if (clientOtpSent) {
+        const session = await loginClient(form);
+        persistSession(session);
+        return;
+      }
 
-      persistSession(session);
+      const result = await loginWithCredentials({
+        email: form.email,
+        password: form.password,
+      });
+
+      if (result.requiresOtp) {
+        setClientOtpSent(true);
+        setStatus("Client account detected. OTP sent to the registered email.");
+        return;
+      }
+
+      persistSession(result);
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -62,27 +56,12 @@ function Login() {
 
   return (
     <AuthShell>
-      <div className="mb-6 flex rounded-lg border border-[#ccd8d0] bg-[#eef3ef] p-1">
-        {["client", "member"].map((item) => (
-          <button
-            className={`h-11 flex-1 rounded-md text-sm font-semibold transition ${
-              mode === item ? "bg-[#214f43] text-white shadow-sm" : "text-[#52635a]"
-            }`}
-            key={item}
-            onClick={() => {
-              setMode(item);
-              setClientOtpSent(false);
-              setError("");
-              setStatus("");
-            }}
-            type="button"
-          >
-            {item === "client" ? "Client" : "Member"}
-          </button>
-        ))}
+      <div className="mb-6 rounded-lg border border-[#ccd8d0] bg-[#eef3ef] px-4 py-3">
+        <p className="text-sm font-semibold text-[#31423a]">Sign in with your email and password.</p>
+        <p className="mt-1 text-sm text-[#52635a]">OrbitDesk will detect whether this is a member or client account.</p>
       </div>
 
-      <form className="space-y-4" onSubmit={mode === "client" && !clientOtpSent ? handleClientOtp : handleLogin}>
+      <form className="space-y-4" onSubmit={handleLogin}>
         <div>
           <label className="text-sm font-semibold text-[#31423a]" htmlFor="email">
             Email
@@ -113,7 +92,7 @@ function Login() {
           />
         </div>
 
-        {mode === "client" && clientOtpSent ? (
+        {clientOtpSent ? (
           <div>
             <label className="text-sm font-semibold text-[#31423a]" htmlFor="otp">
               OTP
@@ -139,7 +118,7 @@ function Login() {
           disabled={loading}
           type="submit"
         >
-          {loading ? "Working..." : mode === "client" && !clientOtpSent ? "Send OTP" : "Login"}
+          {loading ? "Working..." : clientOtpSent ? "Verify OTP" : "Continue"}
         </button>
       </form>
     </AuthShell>

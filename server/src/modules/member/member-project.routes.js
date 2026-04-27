@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import Client from "../../models/Client.js";
 import Member from "../../models/Member.js";
 import Project from "../../models/Project.js";
+import Request from "../../models/Request.js";
 import Ticket from "../../models/Ticket.js";
 import { sendTicketAssignedMail } from "../mail/mail.service.js";
 
@@ -55,6 +56,9 @@ async function memberProjectRoutes(fastify) {
       .sort({ createdAt: -1 })
       .populate("createdBy", "name email")
       .populate("assignedTo", "name email");
+    const requests = await Request.find({ project: project._id })
+      .sort({ createdAt: -1 })
+      .populate("createdBy", "name email");
 
     const client = project.clientEmail
       ? await Client.findOne({ email: project.clientEmail }).select("name email agreementDocument")
@@ -63,6 +67,7 @@ async function memberProjectRoutes(fastify) {
     return {
       project,
       client,
+      requests,
       tickets,
     };
   });
@@ -88,7 +93,7 @@ async function memberProjectRoutes(fastify) {
       .populate("createdBy", "name email")
       .populate("assignedTo", "name email");
 
-    if (!ticket || ticket.assignedTo?._id.toString() !== member.id) {
+    if (!ticket || !hasProjectMember(ticket.project, member.id)) {
       throw fastify.httpErrors.notFound("Ticket not found");
     }
 
@@ -99,7 +104,7 @@ async function memberProjectRoutes(fastify) {
 
   fastify.post("/member/projects/:projectId/tickets", async (request, reply) => {
     const member = await requireMember(request, fastify);
-    const { title, description = "", assignedTo, deadline, urls = [] } = request.body || {};
+    const { title, description = "", assignedTo, deadline, status = "open", urls = [] } = request.body || {};
 
     if (!title || !assignedTo || !deadline) {
       throw fastify.httpErrors.badRequest("title, assignedTo, and deadline are required");
@@ -107,6 +112,10 @@ async function memberProjectRoutes(fastify) {
 
     if (!mongoose.Types.ObjectId.isValid(assignedTo)) {
       throw fastify.httpErrors.badRequest("assignedTo must be a valid member id");
+    }
+
+    if (!["open", "in_progress", "resolved"].includes(status)) {
+      throw fastify.httpErrors.badRequest("status must be open, in_progress, or resolved");
     }
 
     const normalizedUrls = Array.isArray(urls) ? urls.filter(Boolean) : [];
@@ -129,6 +138,7 @@ async function memberProjectRoutes(fastify) {
       deadline: new Date(deadline),
       createdBy: member._id,
       assignedTo,
+      status,
     });
 
     await ticket.populate("createdBy", "name email");
@@ -139,7 +149,65 @@ async function memberProjectRoutes(fastify) {
     reply.code(201);
     return {
       ticket,
-      message: "Ticket raised",
+      message: "Ticket raised and assignee notified by email",
+    };
+  });
+
+  fastify.put("/member/tickets/:ticketId/status", async (request) => {
+    const member = await requireMember(request, fastify);
+    const { status } = request.body || {};
+
+    if (!["open", "in_progress", "resolved"].includes(status)) {
+      throw fastify.httpErrors.badRequest("status must be open, in_progress, or resolved");
+    }
+
+    const ticket = await Ticket.findById(request.params.ticketId)
+      .populate("project", "name members")
+      .populate("createdBy", "name email")
+      .populate("assignedTo", "name email");
+
+    if (!ticket || !hasProjectMember(ticket.project, member.id)) {
+      throw fastify.httpErrors.notFound("Ticket not found");
+    }
+
+    ticket.status = status;
+    await ticket.save();
+    await ticket.populate("project", "name clientEmail status description members");
+
+    return {
+      ticket,
+      message: "Ticket status updated",
+    };
+  });
+
+  fastify.post("/member/projects/:projectId/requests", async (request, reply) => {
+    const member = await requireMember(request, fastify);
+    const { title, description = "" } = request.body || {};
+
+    if (!title) {
+      throw fastify.httpErrors.badRequest("title is required");
+    }
+
+    const project = await Project.findById(request.params.projectId).populate("members", "name email status");
+
+    if (!project || !hasProjectMember(project, member.id)) {
+      throw fastify.httpErrors.notFound("Project not found");
+    }
+
+    const createdRequest = await Request.create({
+      project: project._id,
+      title,
+      description,
+      createdBy: member._id,
+    });
+
+    await createdRequest.populate("createdBy", "name email");
+    await createdRequest.populate("project", "name clientEmail");
+
+    reply.code(201);
+    return {
+      request: createdRequest,
+      message: "Request raised for admin review",
     };
   });
 }

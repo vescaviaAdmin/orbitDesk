@@ -1,6 +1,7 @@
 import Member from "../../models/Member.js";
 import Client from "../../models/Client.js";
 import Project from "../../models/Project.js";
+import Request from "../../models/Request.js";
 import Ticket from "../../models/Ticket.js";
 import env from "../../config/env.js";
 import { sendClientPasswordSetup, sendMemberPasswordSetup } from "../mail/mail.service.js";
@@ -135,6 +136,19 @@ async function adminRoutes(fastify) {
       .populate("members", "name email status");
     return {
       projects,
+    };
+  });
+
+  fastify.get("/admin/requests", async (request) => {
+    requireAdminSecret(request, fastify);
+
+    const requests = await Request.find()
+      .sort({ createdAt: -1 })
+      .populate("project", "name clientEmail status")
+      .populate("createdBy", "name email");
+
+    return {
+      requests,
     };
   });
 

@@ -1,17 +1,35 @@
 import { useEffect, useMemo, useState } from "react";
-import { getMemberProject, getMemberTicket, listMemberProjects, listMemberTickets, raiseTicket } from "../../api/member";
+import {
+  getMemberProject,
+  getMemberTicket,
+  listMemberProjects,
+  listMemberTickets,
+  raiseRequest,
+  raiseTicket,
+  updateMemberTicketStatus,
+} from "../../api/member";
 
 const emptyTicket = {
   title: "",
   description: "",
   assignedTo: "",
   deadline: "",
+  status: "open",
   urlsText: "",
+};
+
+const emptyRequest = {
+  title: "",
+  description: "",
 };
 
 function routeTo(path) {
   window.history.pushState({}, "", path);
   window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
+function scrollToId(id) {
+  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function formatDate(value) {
@@ -35,7 +53,9 @@ function MemberDashboard() {
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [projectClient, setProjectClient] = useState(null);
   const [projectTickets, setProjectTickets] = useState([]);
+  const [projectRequests, setProjectRequests] = useState([]);
   const [ticketForm, setTicketForm] = useState(emptyTicket);
+  const [requestForm, setRequestForm] = useState(emptyRequest);
   const [memberSearch, setMemberSearch] = useState("");
   const [ticketFilterMemberId, setTicketFilterMemberId] = useState("all");
   const [showAllProjects, setShowAllProjects] = useState(false);
@@ -100,12 +120,14 @@ function MemberDashboard() {
       const data = await getMemberProject(projectId);
       setSelectedProject(data.project);
       setProjectClient(data.client || null);
+      setProjectRequests(data.requests || []);
       setProjectTickets(data.tickets || []);
       setTicketFilterMemberId("all");
       setTicketForm({
         ...emptyTicket,
         assignedTo: data.project.members?.[0]?._id || "",
       });
+      setRequestForm(emptyRequest);
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -145,8 +167,10 @@ function MemberDashboard() {
     setSelectedProject(null);
     setSelectedTicket(null);
     setProjectClient(null);
+    setProjectRequests([]);
     setProjectTickets([]);
     setTicketForm(emptyTicket);
+    setRequestForm(emptyRequest);
   }, [projectIdFromPath, ticketIdFromPath]);
 
   function updateTicket(event) {
@@ -155,6 +179,20 @@ function MemberDashboard() {
       ...current,
       [name]: value,
     }));
+  }
+
+  function updateRequest(event) {
+    const { name, value } = event.target;
+    setRequestForm((current) => ({
+      ...current,
+      [name]: value,
+    }));
+  }
+
+  function applyTicketUpdate(updatedTicket) {
+    setTickets((current) => current.map((ticket) => (ticket._id === updatedTicket._id ? { ...ticket, ...updatedTicket } : ticket)));
+    setProjectTickets((current) => current.map((ticket) => (ticket._id === updatedTicket._id ? { ...ticket, ...updatedTicket } : ticket)));
+    setSelectedTicket((current) => (current?._id === updatedTicket._id ? { ...current, ...updatedTicket } : current));
   }
 
   async function handleTicketSubmit(event) {
@@ -179,6 +217,7 @@ function MemberDashboard() {
         description: ticketForm.description,
         assignedTo: ticketForm.assignedTo,
         deadline: ticketForm.deadline,
+        status: ticketForm.status,
         urls,
       });
 
@@ -190,6 +229,49 @@ function MemberDashboard() {
       });
       setMemberSearch("");
       setTicketFilterMemberId("all");
+      setStatus(data.message);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleStatusChange(ticketId, nextStatus) {
+    setLoading(true);
+    setStatus("");
+    setError("");
+
+    try {
+      const data = await updateMemberTicketStatus(ticketId, nextStatus);
+      applyTicketUpdate(data.ticket);
+      setStatus(data.message);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleRequestSubmit(event) {
+    event.preventDefault();
+
+    if (!selectedProject) {
+      return;
+    }
+
+    setLoading(true);
+    setStatus("");
+    setError("");
+
+    try {
+      const data = await raiseRequest(selectedProject._id, {
+        title: requestForm.title,
+        description: requestForm.description,
+      });
+
+      setProjectRequests((current) => [data.request, ...current]);
+      setRequestForm(emptyRequest);
       setStatus(data.message);
     } catch (requestError) {
       setError(requestError.message);
@@ -224,12 +306,18 @@ function MemberDashboard() {
             memberSearch={memberSearch}
             onBack={() => routeTo("/member/dashboard")}
             onMemberSearch={setMemberSearch}
+            onRequestChange={updateRequest}
+            onStatusChange={handleStatusChange}
+            onSubmitRequest={handleRequestSubmit}
             onSelectAssignee={(memberId) => setTicketForm((current) => ({ ...current, assignedTo: memberId }))}
             onSubmitTicket={handleTicketSubmit}
             onTicketChange={updateTicket}
             project={selectedProject}
             projectClient={projectClient}
+            requests={projectRequests}
+            requestForm={requestForm}
             searchedMembers={searchedProjectMembers}
+            session={session}
             ticketFilterMemberId={ticketFilterMemberId}
             ticketForm={ticketForm}
             tickets={filteredProjectTickets}
@@ -237,11 +325,19 @@ function MemberDashboard() {
           />
         ) : null}
 
-        {ticketIdFromPath ? <TicketDetail ticket={selectedTicket} onBack={() => routeTo("/member/dashboard")} /> : null}
+        {ticketIdFromPath ? (
+          <TicketDetail
+            loading={loading}
+            onBack={() => routeTo("/member/dashboard")}
+            onStatusChange={handleStatusChange}
+            ticket={selectedTicket}
+          />
+        ) : null}
 
         {!projectIdFromPath && !ticketIdFromPath ? (
           <DashboardHome
             loading={loading}
+            onStatusChange={handleStatusChange}
             onToggleProjects={() => setShowAllProjects((current) => !current)}
             onToggleTickets={() => setShowAllTickets((current) => !current)}
             projects={visibleProjects}
@@ -257,10 +353,17 @@ function MemberDashboard() {
   );
 }
 
-function DashboardHome({ loading, onToggleProjects, onToggleTickets, projects, projectsTotal, showAllProjects, showAllTickets, tickets, ticketsTotal }) {
+function DashboardHome({ loading, onStatusChange, onToggleProjects, onToggleTickets, projects, projectsTotal, showAllProjects, showAllTickets, tickets, ticketsTotal }) {
   return (
     <>
-      <section className="mt-8">
+      <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <SummaryCard label="Projects" value={projectsTotal} />
+        <SummaryCard label="Your tickets" value={ticketsTotal} />
+        <SummaryCard label="Open work" value={tickets.filter((ticket) => ticket.status === "open").length} />
+        <SummaryCard label="In progress" value={tickets.filter((ticket) => ticket.status === "in_progress").length} />
+      </div>
+
+      <section className="mt-8 rounded-lg border border-[#d8dde5] bg-white p-5 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-2xl font-semibold">Projects</h2>
           {projectsTotal > 6 ? (
@@ -271,16 +374,20 @@ function DashboardHome({ loading, onToggleProjects, onToggleTickets, projects, p
         </div>
         <div className="mt-4 grid gap-4 md:grid-cols-3">
           {projects.map((project) => (
-            <article className="rounded-lg border border-[#d3d8e3] bg-white p-5 text-left shadow-sm" key={project._id}>
+            <article className="rounded-lg border border-[#edf0f4] bg-white p-5 text-left" key={project._id}>
               <span className="rounded-md bg-[#eef1f7] px-2 py-1 text-xs font-semibold capitalize text-[#4b5d8c]">{project.status}</span>
               <h3 className="mt-4 text-lg font-semibold">{project.name}</h3>
               <p className="mt-2 text-sm text-[#596274]">{project.clientEmail || "No client assigned"}</p>
-              <div className="mt-5 flex gap-2">
+              <p className="mt-2 text-xs font-semibold text-[#4b5d8c]">{project.members?.length || 0} members assigned</p>
+              <div className="mt-5 grid gap-2">
                 <button className="h-10 flex-1 rounded-md border border-[#cbd3df] bg-white px-3 text-sm font-semibold" onClick={() => routeTo(`/member/projects/${project._id}`)} type="button">
                   View project
                 </button>
                 <button className="h-10 flex-1 rounded-md bg-[#4b5d8c] px-3 text-sm font-semibold text-white" onClick={() => routeTo(`/member/projects/${project._id}`)} type="button">
                   Raise ticket
+                </button>
+                <button className="h-10 flex-1 rounded-md bg-[#243c5a] px-3 text-sm font-semibold text-white" onClick={() => routeTo(`/member/projects/${project._id}`)} type="button">
+                  Raise request
                 </button>
               </div>
             </article>
@@ -293,7 +400,7 @@ function DashboardHome({ loading, onToggleProjects, onToggleTickets, projects, p
         </div>
       </section>
 
-      <section className="mt-10">
+      <section className="mt-10 rounded-lg border border-[#d8dde5] bg-white p-5 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-2xl font-semibold">Your Tickets</h2>
           {ticketsTotal > 6 ? (
@@ -304,9 +411,23 @@ function DashboardHome({ loading, onToggleProjects, onToggleTickets, projects, p
         </div>
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           {tickets.map((ticket) => (
-            <article className="rounded-lg border border-[#d3d8e3] bg-white p-5 shadow-sm" key={ticket._id}>
+            <article className="rounded-lg border-2 border-[#d7deea] border-l-[6px] border-l-[#4b5d8c] bg-white p-5 shadow-[0_1px_0_#eef1f5]" key={ticket._id}>
               <p className="text-sm font-semibold text-[#4b5d8c]">{ticket.project?.name || "Project"}</p>
               <h3 className="mt-2 text-lg font-semibold">{ticket.title}</h3>
+              <div className="mt-3 border-t border-dashed border-[#d7deea]" />
+              <label className="mt-3 block text-xs font-semibold uppercase tracking-[0.08em] text-[#4b5d8c]">
+                Status
+                <select
+                  className="mt-2 h-10 w-full rounded-md border border-[#cbd3df] px-3 text-sm font-semibold capitalize outline-none focus:border-[#4b5d8c] focus:ring-2 focus:ring-[#4b5d8c]/20"
+                  disabled={loading}
+                  onChange={(event) => onStatusChange(ticket._id, event.target.value)}
+                  value={ticket.status}
+                >
+                  <option value="open">Open</option>
+                  <option value="in_progress">In progress</option>
+                  <option value="resolved">Resolved</option>
+                </select>
+              </label>
               <p className="mt-2 text-sm text-[#596274]">Deadline: {formatDate(ticket.deadline)}</p>
               <div className="mt-5">
                 <button className="h-10 rounded-md border border-[#cbd3df] bg-white px-4 text-sm font-semibold" onClick={() => routeTo(`/member/tickets/${ticket._id}`)} type="button">
@@ -332,12 +453,18 @@ function ProjectDetail({
   memberSearch,
   onBack,
   onMemberSearch,
+  onRequestChange,
+  onStatusChange,
+  onSubmitRequest,
   onSelectAssignee,
   onSubmitTicket,
   onTicketChange,
   project,
   projectClient,
+  requests,
+  requestForm,
   searchedMembers,
+  session,
   ticketFilterMemberId,
   ticketForm,
   tickets,
@@ -356,11 +483,20 @@ function ProjectDetail({
         <span className="rounded-md bg-[#eef1f7] px-2 py-1 text-xs font-semibold capitalize text-[#4b5d8c]">{project.status}</span>
         <h2 className="mt-3 text-3xl font-bold">{project.name}</h2>
         <p className="mt-2 text-sm text-[#596274]">{project.description || "No project description"}</p>
+        <div className="mt-5 flex flex-wrap gap-3">
+          <button className="h-11 rounded-md bg-[#4b5d8c] px-4 text-sm font-semibold text-white" onClick={() => scrollToId("raise-ticket-card")} type="button">
+            Raise ticket
+          </button>
+          <button className="h-11 rounded-md bg-[#243c5a] px-4 text-sm font-semibold text-white" onClick={() => scrollToId("raise-request-card")} type="button">
+            Raise request to admin
+          </button>
+        </div>
       </div>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
-        <form className="rounded-lg border border-[#d3d8e3] bg-white p-5 shadow-sm" onSubmit={onSubmitTicket}>
-          <h3 className="text-xl font-semibold">Raise ticket</h3>
+      <div className="mt-6 grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
+        <section className="space-y-6">
+          <form className="rounded-lg border border-[#d8dde5] bg-white p-5 shadow-sm" id="raise-ticket-card" onSubmit={onSubmitTicket}>
+            <h3 className="text-xl font-semibold">Raise ticket</h3>
 
           <label className="mt-5 block text-sm font-semibold" htmlFor="title">
             Title
@@ -370,6 +506,15 @@ function ProjectDetail({
           <label className="mt-4 block text-sm font-semibold" htmlFor="deadline">
             Deadline
             <input className="mt-2 h-12 w-full rounded-md border border-[#cbd3df] px-3 outline-none focus:border-[#4b5d8c] focus:ring-2 focus:ring-[#4b5d8c]/20" id="deadline" name="deadline" onChange={onTicketChange} required type="date" value={ticketForm.deadline} />
+          </label>
+
+          <label className="mt-4 block text-sm font-semibold" htmlFor="status">
+            Status
+            <select className="mt-2 h-12 w-full rounded-md border border-[#cbd3df] px-3 outline-none focus:border-[#4b5d8c] focus:ring-2 focus:ring-[#4b5d8c]/20" id="status" name="status" onChange={onTicketChange} value={ticketForm.status}>
+              <option value="open">Open</option>
+              <option value="in_progress">In progress</option>
+              <option value="resolved">Resolved</option>
+            </select>
           </label>
 
           <label className="mt-4 block text-sm font-semibold" htmlFor="memberSearch">
@@ -402,10 +547,27 @@ function ProjectDetail({
             <textarea className="mt-2 min-h-24 w-full rounded-md border border-[#cbd3df] px-3 py-2 outline-none focus:border-[#4b5d8c] focus:ring-2 focus:ring-[#4b5d8c]/20" id="urlsText" name="urlsText" onChange={onTicketChange} placeholder="One URL per line" value={ticketForm.urlsText} />
           </label>
 
-          <button className="mt-5 h-12 w-full rounded-md bg-[#4b5d8c] font-semibold text-white disabled:opacity-60" disabled={loading} type="submit">
-            {loading ? "Creating..." : "Raise ticket"}
-          </button>
-        </form>
+            <button className="mt-5 h-12 w-full rounded-md bg-[#4b5d8c] font-semibold text-white disabled:opacity-60" disabled={loading} type="submit">
+              {loading ? "Creating..." : "Raise ticket"}
+            </button>
+            <p className="mt-3 text-sm text-[#596274]">The selected assignee will receive an email when the ticket is raised.</p>
+          </form>
+
+          <form className="rounded-lg border border-[#d8dde5] bg-white p-5 shadow-sm" id="raise-request-card" onSubmit={onSubmitRequest}>
+            <h3 className="text-xl font-semibold">Raise request</h3>
+            <label className="mt-5 block text-sm font-semibold" htmlFor="requestTitle">
+              Title
+              <input className="mt-2 h-12 w-full rounded-md border border-[#cbd3df] px-3 outline-none focus:border-[#243c5a] focus:ring-2 focus:ring-[#243c5a]/20" id="requestTitle" name="title" onChange={onRequestChange} required value={requestForm.title} />
+            </label>
+            <label className="mt-4 block text-sm font-semibold" htmlFor="requestDescription">
+              Description
+              <textarea className="mt-2 min-h-28 w-full rounded-md border border-[#cbd3df] px-3 py-2 outline-none focus:border-[#243c5a] focus:ring-2 focus:ring-[#243c5a]/20" id="requestDescription" name="description" onChange={onRequestChange} value={requestForm.description} />
+            </label>
+            <button className="mt-5 h-12 w-full rounded-md bg-[#243c5a] font-semibold text-white disabled:opacity-60" disabled={loading} type="submit">
+              {loading ? "Saving..." : "Send request to admin"}
+            </button>
+          </form>
+        </section>
 
         <section className="space-y-6">
           <section className="rounded-lg border border-[#d3d8e3] bg-white p-5 shadow-sm">
@@ -426,6 +588,30 @@ function ProjectDetail({
           </section>
 
           <section className="rounded-lg border border-[#d3d8e3] bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-xl font-semibold">Project requests</h3>
+              <p className="text-sm text-[#596274]">{requests.length} total</p>
+            </div>
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
+              {requests.map((requestItem) => (
+                <article className="rounded-lg border-2 border-[#d7deea] border-l-[6px] border-l-[#243c5a] p-4 shadow-[0_1px_0_#eef1f5]" key={requestItem._id}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h4 className="font-semibold">{requestItem.title}</h4>
+                      <p className="mt-1 text-sm text-[#596274]">{requestItem.description || "No description"}</p>
+                      <p className="mt-3 text-sm text-[#596274]">Raised by {requestItem.createdBy?.name || "member"}</p>
+                    </div>
+                    <span className="rounded-md bg-[#eef1f7] px-2 py-1 text-xs font-semibold capitalize text-[#4b5d8c]">
+                      {requestItem.status.replaceAll("_", " ")}
+                    </span>
+                  </div>
+                </article>
+              ))}
+              {!requests.length ? <p className="rounded-lg border border-[#edf0f4] p-5 text-sm text-[#596274]">No requests raised for this project.</p> : null}
+            </div>
+          </section>
+
+          <section className="rounded-lg border border-[#d3d8e3] bg-white p-5 shadow-sm">
             <h3 className="text-xl font-semibold">Project tickets</h3>
             <div className="mt-4">
               <label className="block text-sm font-semibold" htmlFor="ticketFilterMember">
@@ -440,22 +626,35 @@ function ProjectDetail({
                 </select>
               </label>
             </div>
-            <div className="mt-5 divide-y divide-[#edf0f4]">
+            <div className="mt-5 grid gap-4 md:grid-cols-2">
               {tickets.map((ticket) => (
-                <article className="py-4" key={ticket._id}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h4 className="font-semibold">{ticket.title}</h4>
-                      <p className="mt-1 text-sm text-[#596274]">Deadline: {formatDate(ticket.deadline)}</p>
-                      <p className="mt-1 text-sm text-[#596274]">Assigned to {ticket.assignedTo?.name || "member"}</p>
-                    </div>
-                    <button className="rounded-md border border-[#cbd3df] px-3 py-1 text-sm font-semibold" onClick={() => routeTo(`/member/tickets/${ticket._id}`)} type="button">
+                <article className="rounded-lg border-2 border-[#d7deea] border-l-[6px] border-l-[#4b5d8c] p-4 shadow-[0_1px_0_#eef1f5]" key={ticket._id}>
+                  <label className="block text-xs font-semibold uppercase tracking-[0.08em] text-[#4b5d8c]">
+                    Status
+                    <select
+                      className="mt-2 h-10 w-full rounded-md border border-[#cbd3df] px-3 text-sm font-semibold capitalize outline-none focus:border-[#4b5d8c] focus:ring-2 focus:ring-[#4b5d8c]/20"
+                      disabled={loading}
+                      onChange={(event) => onStatusChange(ticket._id, event.target.value)}
+                      value={ticket.status}
+                    >
+                      <option value="open">Open</option>
+                      <option value="in_progress">In progress</option>
+                      <option value="resolved">Resolved</option>
+                    </select>
+                  </label>
+                  <h4 className="mt-3 font-semibold">{ticket.title}</h4>
+                  <div className="mt-3 border-t border-dashed border-[#d7deea]" />
+                  <p className="mt-2 text-sm text-[#596274]">Deadline: {formatDate(ticket.deadline)}</p>
+                  <p className="mt-1 text-sm text-[#596274]">Assigned to {ticket.assignedTo?.name || "member"}</p>
+                  <p className="mt-1 text-sm text-[#596274]">Created by {ticket.createdBy?.name || session.user?.name || "member"}</p>
+                  <div className="mt-4">
+                    <button className="h-10 rounded-md border border-[#cbd3df] px-4 text-sm font-semibold" onClick={() => routeTo(`/member/tickets/${ticket._id}`)} type="button">
                       View ticket
                     </button>
                   </div>
                 </article>
               ))}
-              {!tickets.length ? <p className="py-8 text-sm text-[#596274]">No tickets raised for this project.</p> : null}
+              {!tickets.length ? <p className="rounded-lg border border-[#edf0f4] p-5 text-sm text-[#596274]">No tickets raised for this project.</p> : null}
             </div>
           </section>
         </section>
@@ -464,18 +663,42 @@ function ProjectDetail({
   );
 }
 
-function TicketDetail({ onBack, ticket }) {
+function SummaryCard({ label, value }) {
+  return (
+    <article className="rounded-lg border border-[#d8dde5] bg-white p-5 shadow-sm">
+      <p className="text-sm font-semibold text-[#596274]">{label}</p>
+      <strong className="mt-2 block text-3xl">{value}</strong>
+    </article>
+  );
+}
+
+function TicketDetail({ loading, onBack, onStatusChange, ticket }) {
   if (!ticket) {
     return <p className="mt-8 rounded-lg border border-[#d3d8e3] bg-white p-5 text-sm text-[#596274]">Loading ticket...</p>;
   }
 
   return (
-    <section className="mt-8 rounded-lg border border-[#d3d8e3] bg-white p-5 shadow-sm">
+    <section className="mt-8 rounded-lg border-2 border-[#d7deea] border-l-[6px] border-l-[#4b5d8c] bg-white p-5 shadow-sm">
       <button className="rounded-md border border-[#cbd3df] bg-white px-3 py-1 text-sm font-semibold" onClick={onBack} type="button">
         Back to dashboard
       </button>
       <p className="mt-5 text-sm font-semibold text-[#4b5d8c]">{ticket.project?.name || "Project"}</p>
       <h2 className="mt-2 text-3xl font-bold">{ticket.title}</h2>
+      <div className="mt-4 border-t border-dashed border-[#d7deea]" />
+      <label className="mt-5 block max-w-sm text-sm font-semibold text-[#4b5d8c]" htmlFor="ticketDetailStatus">
+        Status
+        <select
+          className="mt-2 h-11 w-full rounded-md border border-[#cbd3df] px-3 text-sm font-semibold capitalize outline-none focus:border-[#4b5d8c] focus:ring-2 focus:ring-[#4b5d8c]/20"
+          disabled={loading}
+          id="ticketDetailStatus"
+          onChange={(event) => onStatusChange(ticket._id, event.target.value)}
+          value={ticket.status}
+        >
+          <option value="open">Open</option>
+          <option value="in_progress">In progress</option>
+          <option value="resolved">Resolved</option>
+        </select>
+      </label>
       <p className="mt-3 text-sm text-[#596274]">Deadline: {formatDate(ticket.deadline)}</p>
       <p className="mt-3 text-sm text-[#596274]">{ticket.description || "No description"}</p>
       <div className="mt-5">

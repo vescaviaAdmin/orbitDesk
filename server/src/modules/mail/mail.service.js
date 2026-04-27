@@ -65,6 +65,6 @@ export async function sendTicketAssignedMail(app, member, ticket, project) {
   await sendMail(app, {
     to: member.email,
     subject: `Ticket assigned: ${ticket.title}`,
-    text: `Hello ${member.name}, a ticket was assigned to you in ${project.name}. Deadline: ${new Date(ticket.deadline).toLocaleDateString("en-US")}. ${urlsText}`,
+    text: `Hello ${member.name}, a new ticket was raised and assigned to you in ${project.name}. Deadline: ${new Date(ticket.deadline).toLocaleDateString("en-US")}. ${urlsText}`,
   });
 }
