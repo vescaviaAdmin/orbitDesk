@@ -1,5 +1,71 @@
 import mongoose from "mongoose";
 
+const planningTicketSchema = new mongoose.Schema(
+  {
+    title: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    outcome: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+  },
+  { _id: false },
+);
+
+const planningSprintSchema = new mongoose.Schema(
+  {
+    name: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    startDate: {
+      type: String,
+      default: "",
+    },
+    endDate: {
+      type: String,
+      default: "",
+    },
+    outcome: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    tickets: [planningTicketSchema],
+  },
+  { _id: false },
+);
+
+const planningPhaseSchema = new mongoose.Schema(
+  {
+    name: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    startDate: {
+      type: String,
+      default: "",
+    },
+    endDate: {
+      type: String,
+      default: "",
+    },
+    outcome: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    sprints: [planningSprintSchema],
+  },
+  { _id: false },
+);
+
 const projectSchema = new mongoose.Schema(
   {
     name: {
@@ -23,6 +89,7 @@ const projectSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    planning: [planningPhaseSchema],
     members: [
       {
         type: mongoose.Schema.Types.ObjectId,

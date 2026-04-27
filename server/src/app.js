@@ -4,12 +4,14 @@ import multipart from "@fastify/multipart";
 import sensiblePlugin from "./plugins/sensible.js";
 import authPlugin from "./plugins/auth.js";
 import connectDatabase from "./config/database.js";
+import env from "./config/env.js";
 import rootRoutes from "./routes/root.js";
 import healthRoutes from "./routes/health.js";
 import clientAuthRoutes from "./modules/auth/client.routes.js";
 import memberAuthRoutes from "./modules/auth/member.routes.js";
 import adminRoutes from "./modules/admin/admin.routes.js";
 import memberProjectRoutes from "./modules/member/member-project.routes.js";
+import clientProjectRoutes from "./modules/client/client-project.routes.js";
 
 async function buildApp() {
   const app = Fastify({
@@ -17,7 +19,14 @@ async function buildApp() {
   });
 
   await app.register(cors, {
-    origin: true,
+    origin(origin, callback) {
+      if (!origin || env.allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error("Origin not allowed"), false);
+    },
   });
   await app.register(multipart, {
     limits: {
@@ -35,6 +44,7 @@ async function buildApp() {
   await app.register(memberAuthRoutes);
   await app.register(adminRoutes);
   await app.register(memberProjectRoutes);
+  await app.register(clientProjectRoutes);
 
   return app;
 }

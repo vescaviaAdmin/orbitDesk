@@ -19,7 +19,14 @@ function App() {
     return <ClientDashboard />;
   }
 
-  if (path.startsWith("/member/dashboard") || path.startsWith("/member/projects") || path.startsWith("/member/tickets")) {
+  if (
+    path.startsWith("/member/dashboard") ||
+    path.startsWith("/member/projects") ||
+    path.startsWith("/member/tickets") ||
+    path.startsWith("/member/requests") ||
+    path.startsWith("/member/documents") ||
+    path === "/member"
+  ) {
     return <MemberDashboard />;
   }
 

@@ -3,6 +3,7 @@ import Client from "../../models/Client.js";
 import Project from "../../models/Project.js";
 import Request from "../../models/Request.js";
 import Ticket from "../../models/Ticket.js";
+import Issue from "../../models/Issue.js";
 import env from "../../config/env.js";
 import { sendClientPasswordSetup, sendMemberPasswordSetup } from "../mail/mail.service.js";
 import { createSecureToken } from "../../utils/tokens.js";
@@ -107,17 +108,41 @@ async function adminRoutes(fastify) {
   fastify.post("/admin/projects", async (request, reply) => {
     requireAdminSecret(request, fastify);
 
-    const { name, clientEmail = "", status = "planned", description = "" } = request.body || {};
+    const { name, clientEmail = "", status = "planned", description = "", planning = [] } = request.body || {};
 
     if (!name) {
       throw fastify.httpErrors.badRequest("project name is required");
     }
+
+    const normalizedPlanning = Array.isArray(planning)
+      ? planning.map((phase) => ({
+          name: phase?.name || "",
+          startDate: phase?.startDate || "",
+          endDate: phase?.endDate || "",
+          outcome: phase?.outcome || "",
+          sprints: Array.isArray(phase?.sprints)
+            ? phase.sprints.map((sprint) => ({
+                name: sprint?.name || "",
+                startDate: sprint?.startDate || "",
+                endDate: sprint?.endDate || "",
+                outcome: sprint?.outcome || "",
+                tickets: Array.isArray(sprint?.tickets)
+                  ? sprint.tickets.map((ticket) => ({
+                      title: ticket?.title || "",
+                      outcome: ticket?.outcome || "",
+                    }))
+                  : [],
+              }))
+            : [],
+        }))
+      : [];
 
     const project = await Project.create({
       name,
       clientEmail,
       status,
       description,
+      planning: normalizedPlanning,
     });
 
     reply.code(201);
@@ -132,7 +157,7 @@ async function adminRoutes(fastify) {
 
     const projects = await Project.find()
       .sort({ createdAt: -1 })
-      .select("name clientEmail status description members createdAt")
+      .select("name clientEmail status description planning members createdAt")
       .populate("members", "name email status");
     return {
       projects,
@@ -152,12 +177,25 @@ async function adminRoutes(fastify) {
     };
   });
 
+  fastify.get("/admin/issues", async (request) => {
+    requireAdminSecret(request, fastify);
+
+    const issues = await Issue.find()
+      .sort({ createdAt: -1 })
+      .populate("project", "name clientEmail status")
+      .populate("client", "name email company");
+
+    return {
+      issues,
+    };
+  });
+
   fastify.get("/admin/projects/:projectId", async (request) => {
     requireAdminSecret(request, fastify);
 
     const project = await Project.findById(request.params.projectId)
       .populate("members", "name email status")
-      .select("name clientEmail status description members createdAt");
+      .select("name clientEmail status description planning members createdAt");
 
     if (!project) {
       throw fastify.httpErrors.notFound("Project not found");
