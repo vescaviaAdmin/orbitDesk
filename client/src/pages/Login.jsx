@@ -42,7 +42,7 @@ function Login() {
 
       if (result.requiresOtp) {
         setClientOtpSent(true);
-        setStatus("Client account detected. OTP sent to the registered email.");
+        setStatus("A verification code has been sent to your registered email.");
         return;
       }
 
@@ -56,9 +56,10 @@ function Login() {
 
   return (
     <AuthShell>
-      <div className="mb-6 rounded-lg border border-[#ccd8d0] bg-[#eef3ef] px-4 py-3">
-        <p className="text-sm font-semibold text-[#31423a]">Sign in with your email and password.</p>
-        <p className="mt-1 text-sm text-[#52635a]">OrbitDesk will detect whether this is a member or client account.</p>
+      <div className="mb-6 rounded-2xl border border-[#ccd8d0] bg-[linear-gradient(135deg,#eef3ef_0%,#f8fbf8_100%)] px-4 py-4 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#2e7d68]">OrbitDesk Access</p>
+        <p className="mt-2 text-lg font-semibold text-[#23332d]">Sign in to continue your work.</p>
+        <p className="mt-1 text-sm leading-6 text-[#52635a]">Secure access for project delivery, approvals, and ongoing collaboration.</p>
       </div>
 
       <form className="space-y-4" onSubmit={handleLogin}>
@@ -95,7 +96,7 @@ function Login() {
         {clientOtpSent ? (
           <div>
             <label className="text-sm font-semibold text-[#31423a]" htmlFor="otp">
-              OTP
+              Verification code
             </label>
             <input
               className="mt-2 h-12 w-full rounded-md border border-[#bfcbc4] px-3 outline-none focus:border-[#2e7d68] focus:ring-2 focus:ring-[#2e7d68]/20"

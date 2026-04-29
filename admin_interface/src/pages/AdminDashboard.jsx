@@ -6,6 +6,7 @@ import {
   getAdminSecret,
   getProject,
   listClients,
+  listIssues,
   listMembers,
   listProjects,
   listRequests,
@@ -16,8 +17,44 @@ import {
 const emptyForms = {
   client: { name: "", email: "", company: "", phone: "", agreement: null },
   member: { name: "", email: "" },
-  project: { name: "", clientEmail: "", status: "planned", description: "" },
+  project: { name: "", clientEmail: "", status: "planned", description: "", planning: [] },
 };
+
+function createPlanningTicket() {
+  return {
+    title: "",
+    outcome: "",
+  };
+}
+
+function createPlanningSprint() {
+  return {
+    name: "",
+    startDate: "",
+    endDate: "",
+    outcome: "",
+    tickets: [createPlanningTicket()],
+  };
+}
+
+function createPlanningPhase() {
+  return {
+    name: "",
+    startDate: "",
+    endDate: "",
+    outcome: "",
+    sprints: [createPlanningSprint()],
+  };
+}
+
+function countPlannedTickets(planning = []) {
+  return planning.reduce(
+    (total, phase) =>
+      total +
+      (phase.sprints || []).reduce((sprintTotal, sprint) => sprintTotal + (sprint.tickets?.length || 0), 0),
+    0,
+  );
+}
 
 function routeTo(path) {
   window.history.pushState({}, "", path);
@@ -45,6 +82,7 @@ function AdminDashboard() {
   const [members, setMembers] = useState([]);
   const [projects, setProjects] = useState([]);
   const [requests, setRequests] = useState([]);
+  const [issues, setIssues] = useState([]);
   const [selectedProject, setSelectedProject] = useState(null);
   const [projectTickets, setProjectTickets] = useState([]);
   const [selectedMemberIds, setSelectedMemberIds] = useState([]);
@@ -53,16 +91,19 @@ function AdminDashboard() {
   const [projectSearch, setProjectSearch] = useState("");
   const [memberDirectorySearch, setMemberDirectorySearch] = useState("");
   const [requestSearch, setRequestSearch] = useState("");
+  const [issueSearch, setIssueSearch] = useState("");
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const projectIdFromPath = path.match(/^\/projects\/([^/]+)$/)?.[1] || "";
   const isDashboardPath = path === "/" || path === "/admin";
   const isClientsPath = path === "/clients";
   const isMembersPath = path === "/members";
   const isProjectsPath = path === "/projects";
   const isRequestsPath = path === "/requests";
+  const isIssuesPath = path === "/issues";
+  const isProjectCreatePath = path === "/projects/new";
+  const projectIdFromPath = !isProjectCreatePath ? path.match(/^\/projects\/([^/]+)$/)?.[1] || "" : "";
 
   const activeMembers = useMemo(() => members.filter((member) => member.status === "active"), [members]);
   const invitedMembers = useMemo(() => members.filter((member) => member.status === "invited"), [members]);
@@ -129,6 +170,17 @@ function AdminDashboard() {
       : requests;
   }, [requestSearch, requests]);
 
+  const filteredIssues = useMemo(() => {
+    const search = issueSearch.trim().toLowerCase();
+    return search
+      ? issues.filter((issue) =>
+          [issue.title, issue.description, issue.status, issue.project?.name, issue.client?.name, issue.client?.email]
+            .filter(Boolean)
+            .some((value) => value.toLowerCase().includes(search)),
+        )
+      : issues;
+  }, [issueSearch, issues]);
+
   useEffect(() => {
     function handleRouteChange() {
       setPath(window.location.pathname);
@@ -140,16 +192,18 @@ function AdminDashboard() {
 
   async function loadDashboard() {
     try {
-      const [clientData, memberData, projectData, requestData] = await Promise.all([
+      const [clientData, memberData, projectData, requestData, issueData] = await Promise.all([
         listClients(),
         listMembers(),
         listProjects(),
         listRequests(),
+        listIssues(),
       ]);
       setClients(clientData.clients || []);
       setMembers(memberData.members || []);
       setProjects(projectData.projects || []);
       setRequests(requestData.requests || []);
+      setIssues(issueData.issues || []);
     } catch (requestError) {
       if (requestError.message === "Invalid admin secret") {
         localStorage.removeItem("orbitdesk_admin_secret");
@@ -221,6 +275,151 @@ function AdminDashboard() {
       [formKey]: {
         ...current[formKey],
         [name]: type === "file" ? files[0] || null : value,
+      },
+    }));
+  }
+
+  function updateProjectPlanningPhase(phaseIndex, field, value) {
+    setForms((current) => ({
+      ...current,
+      project: {
+        ...current.project,
+        planning: current.project.planning.map((phase, currentPhaseIndex) =>
+          currentPhaseIndex === phaseIndex ? { ...phase, [field]: value } : phase,
+        ),
+      },
+    }));
+  }
+
+  function updateProjectPlanningSprint(phaseIndex, sprintIndex, field, value) {
+    setForms((current) => ({
+      ...current,
+      project: {
+        ...current.project,
+        planning: current.project.planning.map((phase, currentPhaseIndex) =>
+          currentPhaseIndex === phaseIndex
+            ? {
+                ...phase,
+                sprints: phase.sprints.map((sprint, currentSprintIndex) =>
+                  currentSprintIndex === sprintIndex ? { ...sprint, [field]: value } : sprint,
+                ),
+              }
+            : phase,
+        ),
+      },
+    }));
+  }
+
+  function updateProjectPlanningTicket(phaseIndex, sprintIndex, ticketIndex, field, value) {
+    setForms((current) => ({
+      ...current,
+      project: {
+        ...current.project,
+        planning: current.project.planning.map((phase, currentPhaseIndex) =>
+          currentPhaseIndex === phaseIndex
+            ? {
+                ...phase,
+                sprints: phase.sprints.map((sprint, currentSprintIndex) =>
+                  currentSprintIndex === sprintIndex
+                    ? {
+                        ...sprint,
+                        tickets: sprint.tickets.map((ticket, currentTicketIndex) =>
+                          currentTicketIndex === ticketIndex ? { ...ticket, [field]: value } : ticket,
+                        ),
+                      }
+                    : sprint,
+                ),
+              }
+            : phase,
+        ),
+      },
+    }));
+  }
+
+  function addProjectPlanningPhase() {
+    setForms((current) => ({
+      ...current,
+      project: {
+        ...current.project,
+        planning: [...current.project.planning, createPlanningPhase()],
+      },
+    }));
+  }
+
+  function removeProjectPlanningPhase(phaseIndex) {
+    setForms((current) => ({
+      ...current,
+      project: {
+        ...current.project,
+        planning: current.project.planning.filter((_, currentPhaseIndex) => currentPhaseIndex !== phaseIndex),
+      },
+    }));
+  }
+
+  function addProjectPlanningSprint(phaseIndex) {
+    setForms((current) => ({
+      ...current,
+      project: {
+        ...current.project,
+        planning: current.project.planning.map((phase, currentPhaseIndex) =>
+          currentPhaseIndex === phaseIndex ? { ...phase, sprints: [...phase.sprints, createPlanningSprint()] } : phase,
+        ),
+      },
+    }));
+  }
+
+  function removeProjectPlanningSprint(phaseIndex, sprintIndex) {
+    setForms((current) => ({
+      ...current,
+      project: {
+        ...current.project,
+        planning: current.project.planning.map((phase, currentPhaseIndex) =>
+          currentPhaseIndex === phaseIndex
+            ? { ...phase, sprints: phase.sprints.filter((_, currentSprintIndex) => currentSprintIndex !== sprintIndex) }
+            : phase,
+        ),
+      },
+    }));
+  }
+
+  function addProjectPlanningTicket(phaseIndex, sprintIndex) {
+    setForms((current) => ({
+      ...current,
+      project: {
+        ...current.project,
+        planning: current.project.planning.map((phase, currentPhaseIndex) =>
+          currentPhaseIndex === phaseIndex
+            ? {
+                ...phase,
+                sprints: phase.sprints.map((sprint, currentSprintIndex) =>
+                  currentSprintIndex === sprintIndex
+                    ? { ...sprint, tickets: [...sprint.tickets, createPlanningTicket()] }
+                    : sprint,
+                ),
+              }
+            : phase,
+        ),
+      },
+    }));
+  }
+
+  function removeProjectPlanningTicket(phaseIndex, sprintIndex, ticketIndex) {
+    setForms((current) => ({
+      ...current,
+      project: {
+        ...current.project,
+        planning: current.project.planning.map((phase, currentPhaseIndex) =>
+          currentPhaseIndex === phaseIndex
+            ? {
+                ...phase,
+                sprints: phase.sprints.map((sprint, currentSprintIndex) =>
+                  currentSprintIndex === sprintIndex
+                    ? { ...sprint, tickets: sprint.tickets.filter((_, currentTicketIndex) => currentTicketIndex !== ticketIndex) }
+                    : sprint,
+                ),
+              }
+            : phase,
+        ),
       },
     }));
   }
@@ -311,7 +510,7 @@ function AdminDashboard() {
       <section className="mx-auto max-w-7xl">
         <AdminHeader
           activePath={path}
-          counts={{ clients: clients.length, members: members.length, projects: projects.length, requests: requests.length }}
+          counts={{ clients: clients.length, members: members.length, projects: projects.length, requests: requests.length, issues: issues.length }}
           onLogout={logoutAdmin}
         />
         {status ? <p className="mt-5 rounded-md bg-[#e8f5eb] px-3 py-2 text-sm text-[#1b6b3a]">{status}</p> : null}
@@ -337,13 +536,22 @@ function AdminDashboard() {
           />
         ) : null}
 
-        {path === "/projects/new" ? (
+        {isProjectCreatePath ? (
           <ProjectCreatePage
             form={forms.project}
             loading={loading}
             onBack={() => routeTo("/projects")}
             onChange={(event) => updateForm("project", event)}
+            onAddPhase={addProjectPlanningPhase}
+            onAddSprint={addProjectPlanningSprint}
+            onAddTicket={addProjectPlanningTicket}
+            onPhaseChange={updateProjectPlanningPhase}
+            onRemovePhase={removeProjectPlanningPhase}
+            onRemoveSprint={removeProjectPlanningSprint}
+            onRemoveTicket={removeProjectPlanningTicket}
+            onSprintChange={updateProjectPlanningSprint}
             onSubmit={() => handleCreate("project", addProject, "/projects")}
+            onTicketChange={updateProjectPlanningTicket}
           />
         ) : null}
 
@@ -380,7 +588,9 @@ function AdminDashboard() {
             projectSearch={projectSearch}
             projects={filteredProjects}
             requests={filteredRequests}
+            issues={filteredIssues}
             totalClients={clients.length}
+            totalIssues={issues.length}
             totalMembers={members.length}
             totalProjects={projects.length}
             totalRequests={requests.length}
@@ -473,7 +683,9 @@ function AdminDashboard() {
                     <h3 className="font-semibold">{project.name}</h3>
                     <p className="mt-1 text-sm text-[#5c6673]">{project.clientEmail || "No client assigned"}</p>
                     <p className="mt-1 text-sm text-[#5c6673]">{project.description || "No project description"}</p>
-                    <p className="mt-3 text-xs font-semibold text-[#6b4f1d]">{project.members?.length || 0} members assigned</p>
+                    <p className="mt-3 text-xs font-semibold text-[#6b4f1d]">
+                      {project.members?.length || 0} members assigned, {project.planning?.length || 0} phases, {countPlannedTickets(project.planning)} planned tickets
+                    </p>
                   </div>
                   <StatusBadge status={project.status} />
                 </div>
@@ -512,6 +724,37 @@ function AdminDashboard() {
             )}
           </ResourceDirectory>
         ) : null}
+
+        {isIssuesPath ? (
+          <ResourceDirectory
+            countLabel={`${issues.length} total`}
+            emptyMessage="No issues found."
+            items={filteredIssues}
+            onSearch={setIssueSearch}
+            searchPlaceholder="Search by title, project, client, or status"
+            searchValue={issueSearch}
+            title="Issues"
+          >
+            {(issue) => (
+              <article className="rounded-lg border border-[#edf0f4] p-4" key={issue._id}>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-semibold">{issue.title}</h3>
+                    <p className="mt-1 text-sm text-[#5c6673]">{issue.project?.name || "Project"}</p>
+                  </div>
+                  <StatusBadge status={issue.status} />
+                </div>
+                <p className="mt-3 text-sm text-[#5c6673]">{issue.description || "No description"}</p>
+                <dl className="mt-4 grid gap-3 text-sm text-[#5c6673] sm:grid-cols-2">
+                  <MetaItem label="Client" value={issue.client?.name || "-"} />
+                  <MetaItem label="Client email" value={issue.client?.email || "-"} />
+                  <MetaItem label="Company" value={issue.client?.company || "-"} />
+                  <MetaItem label="Raised on" value={formatDate(issue.createdAt)} />
+                </dl>
+              </article>
+            )}
+          </ResourceDirectory>
+        ) : null}
       </section>
     </main>
   );
@@ -524,6 +767,7 @@ function AdminHeader({ activePath, counts, onLogout }) {
     { label: `Projects (${counts.projects})`, path: "/projects" },
     { label: `Members (${counts.members})`, path: "/members" },
     { label: `Requests (${counts.requests})`, path: "/requests" },
+    { label: `Issues (${counts.issues})`, path: "/issues" },
   ];
 
   return (
@@ -554,7 +798,8 @@ function AdminHeader({ activePath, counts, onLogout }) {
               (item.path === "/projects" && activePath.startsWith("/projects/")) ||
               (item.path === "/clients" && activePath.startsWith("/clients")) ||
               (item.path === "/members" && activePath.startsWith("/members")) ||
-              (item.path === "/requests" && activePath.startsWith("/requests"));
+              (item.path === "/requests" && activePath.startsWith("/requests")) ||
+              (item.path === "/issues" && activePath.startsWith("/issues"));
 
             return (
               <button
@@ -594,18 +839,21 @@ function DashboardHome({
   projectSearch,
   projects,
   requests,
+  issues,
   totalClients,
+  totalIssues,
   totalMembers,
   totalProjects,
   totalRequests,
 }) {
   return (
     <>
-      <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <SummaryCard label="Clients" sublabel={`${activeClients} active / ${invitedClients} invited`} value={totalClients} />
         <SummaryCard label="Projects" sublabel={`${activeProjectsCount} active`} value={totalProjects} />
         <SummaryCard label="Members" sublabel={`${activeMembers} active / ${invitedMembers} invited`} value={totalMembers} />
         <SummaryCard label="Requests" sublabel="Member-raised admin review queue" value={totalRequests} />
+        <SummaryCard label="Issues" sublabel="Client-raised review queue" value={totalIssues} />
       </div>
 
       <div className="mt-6 grid gap-6">
@@ -730,6 +978,33 @@ function DashboardHome({
             {!requests.length ? <p className="text-sm text-[#5c6673]">No requests found.</p> : null}
           </div>
         </section>
+
+        <section className="rounded-lg border border-[#d8dde5] bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-xl font-semibold">Issues</h2>
+              <p className="mt-1 text-sm text-[#5c6673]">Issues raised by clients for admin review.</p>
+            </div>
+            <button className="rounded-md border border-[#c7ced8] px-3 py-2 text-sm font-semibold" onClick={() => routeTo("/issues")} type="button">
+              View issues
+            </button>
+          </div>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {issues.slice(0, 6).map((issue) => (
+              <article className="rounded-lg border border-[#edf0f4] p-4" key={issue._id}>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-semibold">{issue.title}</h3>
+                    <p className="text-sm text-[#5c6673]">{issue.project?.name || "Project"}</p>
+                  </div>
+                  <StatusBadge status={issue.status} />
+                </div>
+                <p className="mt-3 text-sm text-[#5c6673]">{issue.client?.name || "Client"}</p>
+              </article>
+            ))}
+            {!issues.length ? <p className="text-sm text-[#5c6673]">No issues found.</p> : null}
+          </div>
+        </section>
       </div>
     </>
   );
@@ -844,7 +1119,22 @@ function MemberCreatePage({ form, loading, onBack, onChange, onSubmit }) {
   );
 }
 
-function ProjectCreatePage({ form, loading, onBack, onChange, onSubmit }) {
+function ProjectCreatePage({
+  form,
+  loading,
+  onAddPhase,
+  onAddSprint,
+  onAddTicket,
+  onBack,
+  onChange,
+  onPhaseChange,
+  onRemovePhase,
+  onRemoveSprint,
+  onRemoveTicket,
+  onSprintChange,
+  onSubmit,
+  onTicketChange,
+}) {
   return (
     <FormPage title="Add project" onBack={onBack} onSubmit={onSubmit}>
       <TextField label="Project name" name="name" onChange={onChange} required value={form.name} />
@@ -862,6 +1152,18 @@ function ProjectCreatePage({ form, loading, onBack, onChange, onSubmit }) {
         Description
         <textarea className="mt-2 min-h-24 w-full rounded-md border border-[#c7ced8] px-3 py-2 outline-none focus:border-[#6b4f1d] focus:ring-2 focus:ring-[#6b4f1d]/20" id="description" name="description" onChange={onChange} value={form.description} />
       </label>
+      <ProjectPlanningEditor
+        planning={form.planning}
+        onAddPhase={onAddPhase}
+        onAddSprint={onAddSprint}
+        onAddTicket={onAddTicket}
+        onPhaseChange={onPhaseChange}
+        onRemovePhase={onRemovePhase}
+        onRemoveSprint={onRemoveSprint}
+        onRemoveTicket={onRemoveTicket}
+        onSprintChange={onSprintChange}
+        onTicketChange={onTicketChange}
+      />
       <SubmitButton loading={loading} label="Add project" />
     </FormPage>
   );
@@ -902,8 +1204,58 @@ function ProjectDetailPage({
           <MetaItem label="Client email" value={project.clientEmail || "-"} />
           <MetaItem label="Assigned members" value={String(selectedMembers.length)} />
           <MetaItem label="Tickets" value={String(tickets.length)} />
+          <MetaItem label="Planning phases" value={String(project.planning?.length || 0)} />
+          <MetaItem label="Planned tickets" value={String(countPlannedTickets(project.planning))} />
           <MetaItem label="Created" value={formatDate(project.createdAt)} />
         </dl>
+
+        <div className="mt-6">
+          <h3 className="font-semibold">Project planning</h3>
+          <div className="mt-3 space-y-4">
+            {(project.planning || []).map((phase, phaseIndex) => (
+              <article className="rounded-lg border border-[#edf0f4] bg-[#fbfcfd] p-4" key={`${phase.name}-${phaseIndex}`}>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h4 className="font-semibold">{phase.name || `Phase ${phaseIndex + 1}`}</h4>
+                    <p className="mt-1 text-sm text-[#5c6673]">
+                      {formatTimeline(phase.startDate, phase.endDate)}
+                    </p>
+                  </div>
+                  <span className="rounded-md bg-[#eef1f5] px-3 py-1 text-xs font-semibold text-[#414c5a]">
+                    {phase.sprints?.length || 0} sprints
+                  </span>
+                </div>
+                <p className="mt-3 text-sm text-[#5c6673]">{phase.outcome || "No phase outcome defined."}</p>
+                <div className="mt-4 space-y-3">
+                  {(phase.sprints || []).map((sprint, sprintIndex) => (
+                    <div className="rounded-lg border border-[#e4e9f0] bg-white p-3" key={`${sprint.name}-${sprintIndex}`}>
+                      <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="font-semibold">{sprint.name || `Sprint ${sprintIndex + 1}`}</p>
+                          <p className="text-sm text-[#5c6673]">{formatTimeline(sprint.startDate, sprint.endDate)}</p>
+                        </div>
+                        <span className="text-xs font-semibold uppercase tracking-[0.08em] text-[#7b8490]">
+                          {sprint.tickets?.length || 0} planned tickets
+                        </span>
+                      </div>
+                      <p className="mt-2 text-sm text-[#5c6673]">{sprint.outcome || "No sprint outcome defined."}</p>
+                      <ul className="mt-3 space-y-2">
+                        {(sprint.tickets || []).map((ticket, ticketIndex) => (
+                          <li className="rounded-md bg-[#f6f8fb] px-3 py-2 text-sm text-[#5c6673]" key={`${ticket.title}-${ticketIndex}`}>
+                            <strong className="block text-[#151b20]">{ticket.title || `Planned ticket ${ticketIndex + 1}`}</strong>
+                            <span>{ticket.outcome || "No ticket outcome defined."}</span>
+                          </li>
+                        ))}
+                        {!sprint.tickets?.length ? <li className="text-sm text-[#5c6673]">No planned tickets.</li> : null}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            ))}
+            {!project.planning?.length ? <p className="text-sm text-[#5c6673]">No project planning added yet.</p> : null}
+          </div>
+        </div>
 
         <div className="mt-6">
           <h3 className="font-semibold">Assigned members</h3>
@@ -984,6 +1336,122 @@ function FormPage({ children, onBack, onSubmit, title }) {
       <h2 className="mt-5 text-2xl font-semibold">{title}</h2>
       <div className="mt-5 space-y-4">{children}</div>
     </form>
+  );
+}
+
+function formatTimeline(startDate, endDate) {
+  if (startDate && endDate) {
+    return `${formatDate(startDate)} to ${formatDate(endDate)}`;
+  }
+
+  if (startDate) {
+    return `Starts ${formatDate(startDate)}`;
+  }
+
+  if (endDate) {
+    return `Ends ${formatDate(endDate)}`;
+  }
+
+  return "Timeline not set";
+}
+
+function ProjectPlanningEditor({
+  planning,
+  onAddPhase,
+  onAddSprint,
+  onAddTicket,
+  onPhaseChange,
+  onRemovePhase,
+  onRemoveSprint,
+  onRemoveTicket,
+  onSprintChange,
+  onTicketChange,
+}) {
+  return (
+    <section className="rounded-xl border border-[#d8dde5] bg-[#fbfcfd] p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="text-lg font-semibold">Project planning</h3>
+          <p className="mt-1 text-sm text-[#5c6673]">
+            Define phases, sprint windows, expected outcomes, and planned tickets before delivery begins.
+          </p>
+        </div>
+        <button className="rounded-md bg-[#243c5a] px-4 py-2 text-sm font-semibold text-white" onClick={onAddPhase} type="button">
+          Add phase
+        </button>
+      </div>
+
+      <div className="mt-4 space-y-4">
+        {planning.map((phase, phaseIndex) => (
+          <article className="rounded-xl border border-[#d8dde5] bg-white p-4" key={`phase-${phaseIndex}`}>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <h4 className="text-base font-semibold">Phase {phaseIndex + 1}</h4>
+              <button className="rounded-md border border-[#c7ced8] px-3 py-2 text-sm font-semibold text-[#414c5a]" onClick={() => onRemovePhase(phaseIndex)} type="button">
+                Remove phase
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <TextField label="Phase name" name={`phase-name-${phaseIndex}`} onChange={(event) => onPhaseChange(phaseIndex, "name", event.target.value)} value={phase.name} />
+              <TextField label="Expected outcome" name={`phase-outcome-${phaseIndex}`} onChange={(event) => onPhaseChange(phaseIndex, "outcome", event.target.value)} value={phase.outcome} />
+              <TextField label="Start date" name={`phase-start-${phaseIndex}`} onChange={(event) => onPhaseChange(phaseIndex, "startDate", event.target.value)} type="date" value={phase.startDate} />
+              <TextField label="End date" name={`phase-end-${phaseIndex}`} onChange={(event) => onPhaseChange(phaseIndex, "endDate", event.target.value)} type="date" value={phase.endDate} />
+            </div>
+
+            <div className="mt-5 flex items-center justify-between gap-3">
+              <h5 className="font-semibold">Sprints</h5>
+              <button className="rounded-md bg-[#2f6f5e] px-3 py-2 text-sm font-semibold text-white" onClick={() => onAddSprint(phaseIndex)} type="button">
+                Add sprint
+              </button>
+            </div>
+
+            <div className="mt-3 space-y-4">
+              {phase.sprints.map((sprint, sprintIndex) => (
+                <div className="rounded-lg border border-[#e4e9f0] bg-[#fbfcfe] p-4" key={`phase-${phaseIndex}-sprint-${sprintIndex}`}>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <h6 className="font-semibold">Sprint {sprintIndex + 1}</h6>
+                    <button className="rounded-md border border-[#c7ced8] px-3 py-2 text-sm font-semibold text-[#414c5a]" onClick={() => onRemoveSprint(phaseIndex, sprintIndex)} type="button">
+                      Remove sprint
+                    </button>
+                  </div>
+
+                  <div className="mt-4 grid gap-4 md:grid-cols-2">
+                    <TextField label="Sprint name" name={`sprint-name-${phaseIndex}-${sprintIndex}`} onChange={(event) => onSprintChange(phaseIndex, sprintIndex, "name", event.target.value)} value={sprint.name} />
+                    <TextField label="Sprint outcome" name={`sprint-outcome-${phaseIndex}-${sprintIndex}`} onChange={(event) => onSprintChange(phaseIndex, sprintIndex, "outcome", event.target.value)} value={sprint.outcome} />
+                    <TextField label="Start date" name={`sprint-start-${phaseIndex}-${sprintIndex}`} onChange={(event) => onSprintChange(phaseIndex, sprintIndex, "startDate", event.target.value)} type="date" value={sprint.startDate} />
+                    <TextField label="End date" name={`sprint-end-${phaseIndex}-${sprintIndex}`} onChange={(event) => onSprintChange(phaseIndex, sprintIndex, "endDate", event.target.value)} type="date" value={sprint.endDate} />
+                  </div>
+
+                  <div className="mt-5 flex items-center justify-between gap-3">
+                    <p className="font-semibold">Planned tickets</p>
+                    <button className="rounded-md bg-[#6b4f1d] px-3 py-2 text-sm font-semibold text-white" onClick={() => onAddTicket(phaseIndex, sprintIndex)} type="button">
+                      Add ticket
+                    </button>
+                  </div>
+
+                  <div className="mt-3 space-y-3">
+                    {sprint.tickets.map((ticket, ticketIndex) => (
+                      <div className="rounded-lg border border-[#edf0f4] bg-white p-3" key={`phase-${phaseIndex}-sprint-${sprintIndex}-ticket-${ticketIndex}`}>
+                        <div className="flex justify-end">
+                          <button className="rounded-md border border-[#c7ced8] px-3 py-2 text-sm font-semibold text-[#414c5a]" onClick={() => onRemoveTicket(phaseIndex, sprintIndex, ticketIndex)} type="button">
+                            Remove ticket
+                          </button>
+                        </div>
+                        <div className="mt-3 grid gap-4 md:grid-cols-2">
+                          <TextField label="Ticket title" name={`ticket-title-${phaseIndex}-${sprintIndex}-${ticketIndex}`} onChange={(event) => onTicketChange(phaseIndex, sprintIndex, ticketIndex, "title", event.target.value)} value={ticket.title} />
+                          <TextField label="Expected outcome" name={`ticket-outcome-${phaseIndex}-${sprintIndex}-${ticketIndex}`} onChange={(event) => onTicketChange(phaseIndex, sprintIndex, ticketIndex, "outcome", event.target.value)} value={ticket.outcome} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </article>
+        ))}
+        {!planning.length ? <p className="text-sm text-[#5c6673]">No planning added yet. Add a phase to start structuring the project.</p> : null}
+      </div>
+    </section>
   );
 }
 

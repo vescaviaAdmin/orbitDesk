@@ -153,6 +153,7 @@ MONGO_URI=mongodb://127.0.0.1:27017/orbitdesk
 JWT_SECRET=change-this-secret
 CLIENT_URL=http://localhost:5173
 ADMIN_URL=http://localhost:5174
+ALLOWED_ORIGINS=http://localhost:5173,http://localhost:5174
 ADMIN_API_SECRET=change-this-admin-secret
 CLOUDINARY_CLOUD_NAME=
 CLOUDINARY_API_KEY=
@@ -172,6 +173,33 @@ SMTP_FROM=OrbitDesk <no-reply@orbitdesk.local>
 VITE_API_URL=http://localhost:5000
 VITE_ADMIN_API_SECRET=change-this-admin-secret
 ```
+
+## 4. Deploy On Render
+
+This repo now includes [render.yaml](./render.yaml) for a three-service Render deployment:
+
+- `orbitdesk-server` for the Fastify API
+- `orbitdesk-client` for the member/client login app
+- `orbitdesk-admin` for the admin interface
+
+Import the repo into Render and choose the Blueprint deployment flow. Before the first production deploy, set these secret env vars in Render:
+
+- `MONGO_URI`
+- `JWT_SECRET`
+- `ADMIN_API_SECRET`
+- `CLOUDINARY_CLOUD_NAME`
+- `CLOUDINARY_API_KEY`
+- `CLOUDINARY_API_SECRET`
+- `SMTP_HOST`
+- `SMTP_USER`
+- `SMTP_PASS`
+- `VITE_ADMIN_API_SECRET`
+
+Production notes:
+
+- Update the default `onrender.com` URLs in `render.yaml` if you want different service names or custom domains.
+- `ALLOWED_ORIGINS` must contain the final client and admin URLs so browser requests reach the API.
+- Both static apps include SPA rewrites to `index.html`, which is required for paths like `/member/projects/:id` and `/set-password`.
 
 ## Notes
 
