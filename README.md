@@ -171,6 +171,7 @@ SMTP_FROM=OrbitDesk <no-reply@orbitdesk.local>
 
 ```env
 VITE_API_URL=http://localhost:5000
+VITE_CLIENT_URL=http://localhost:5173
 VITE_ADMIN_API_SECRET=change-this-admin-secret
 ```
 

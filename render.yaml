@@ -77,6 +77,8 @@ services:
         value: 20.19.0
       - key: VITE_API_URL
         value: https://orbitdesk-server.onrender.com
+      - key: VITE_CLIENT_URL
+        value: https://orbitdesk-client.onrender.com
       - key: VITE_ADMIN_API_SECRET
         sync: false
     routes:

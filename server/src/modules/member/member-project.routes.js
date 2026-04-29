@@ -35,7 +35,7 @@ async function memberProjectRoutes(fastify) {
     const projects = await Project.find({ members: member._id })
       .sort({ createdAt: -1 })
       .populate("members", "name email status")
-      .select("name clientEmail status description members createdAt");
+      .select("name clientEmail status description planning members createdAt");
 
     return {
       projects,
@@ -46,7 +46,7 @@ async function memberProjectRoutes(fastify) {
     const member = await requireMember(request, fastify);
     const project = await Project.findById(request.params.projectId)
       .populate("members", "name email status")
-      .select("name clientEmail status description members createdAt");
+      .select("name clientEmail status description planning members createdAt");
 
     if (!project || !hasProjectMember(project, member.id)) {
       throw fastify.httpErrors.notFound("Project not found");

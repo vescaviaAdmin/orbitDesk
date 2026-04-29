@@ -40,6 +40,61 @@ function formatDate(value) {
   });
 }
 
+function resolveCurrentPhase(phases) {
+  if (!phases?.length) {
+    return null;
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const activePhase = phases.find((phase) => {
+    if (!phase.startDate || !phase.endDate) {
+      return false;
+    }
+
+    const start = new Date(phase.startDate);
+    const end = new Date(phase.endDate);
+    return start <= today && today <= end;
+  });
+
+  return activePhase || phases[0];
+}
+
+function resolveCurrentSprint(phase) {
+  if (!phase?.sprints?.length) {
+    return null;
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const activeSprint = phase.sprints.find((sprint) => {
+    if (!sprint.startDate || !sprint.endDate) {
+      return false;
+    }
+
+    const start = new Date(sprint.startDate);
+    const end = new Date(sprint.endDate);
+    return start <= today && today <= end;
+  });
+
+  return activeSprint || phase.sprints[0];
+}
+
+function projectExpectedTime(project) {
+  const datedPhases = (project?.planning || []).filter((phase) => phase.endDate);
+  if (!datedPhases.length) {
+    return "Timeline not set";
+  }
+
+  const latestPhase = datedPhases.reduce((latest, phase) =>
+    new Date(phase.endDate) > new Date(latest.endDate) ? phase : latest,
+  );
+
+  return formatDate(latestPhase.endDate);
+}
+
 function MemberDashboard() {
   const session = JSON.parse(localStorage.getItem("orbitdesk_session") || "{}");
   const [path, setPath] = useState(window.location.pathname);
@@ -49,6 +104,7 @@ function MemberDashboard() {
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [projectClient, setProjectClient] = useState(null);
   const [projectRequests, setProjectRequests] = useState([]);
+  const [selectedProjectTickets, setSelectedProjectTickets] = useState([]);
   const [projectDirectory, setProjectDirectory] = useState([]);
   const [ticketForm, setTicketForm] = useState(emptyTicket);
   const [requestForm, setRequestForm] = useState(emptyRequest);
@@ -139,6 +195,7 @@ function MemberDashboard() {
       setSelectedProject(data.project);
       setProjectClient(data.client || null);
       setProjectRequests(data.requests || []);
+      setSelectedProjectTickets(data.tickets || []);
       setTicketForm({
         ...emptyTicket,
         assignedTo: data.project.members?.[0]?._id || "",
@@ -209,6 +266,7 @@ function MemberDashboard() {
     setSelectedTicket(null);
     setProjectClient(null);
     setProjectRequests([]);
+    setSelectedProjectTickets([]);
     setTicketForm(emptyTicket);
     setRequestForm(emptyRequest);
     setMemberSearch("");
@@ -239,6 +297,9 @@ function MemberDashboard() {
   function applyTicketUpdate(updatedTicket) {
     setTickets((current) => current.map((ticket) => (ticket._id === updatedTicket._id ? { ...ticket, ...updatedTicket } : ticket)));
     setSelectedTicket((current) => (current?._id === updatedTicket._id ? { ...current, ...updatedTicket } : current));
+    setSelectedProjectTickets((current) =>
+      current.map((ticket) => (ticket._id === updatedTicket._id ? { ...ticket, ...updatedTicket } : ticket)),
+    );
   }
 
   async function handleTicketSubmit(event) {
@@ -389,7 +450,16 @@ function MemberDashboard() {
         {isTicketsPath ? <TicketsPage loading={loading} onStatusChange={handleStatusChange} tickets={tickets} /> : null}
         {isRequestsPath ? <RequestsPage loading={loading} requests={requestsFeed} /> : null}
         {isDocumentsPath ? <DocumentsPage documents={documentsFeed} loading={loading} /> : null}
-        {projectIdFromPath ? <ProjectDetail project={selectedProject} projectClient={projectClient} requests={projectRequests} tickets={tickets} /> : null}
+        {projectIdFromPath ? (
+          <ProjectDetail
+            loading={loading}
+            onStatusChange={handleStatusChange}
+            project={selectedProject}
+            projectClient={projectClient}
+            requests={projectRequests}
+            tickets={selectedProjectTickets}
+          />
+        ) : null}
         {ticketIdFromPath ? <TicketDetail loading={loading} onBack={() => routeTo("/member/tickets")} onStatusChange={handleStatusChange} ticket={selectedTicket} /> : null}
         {createTicketProjectId ? (
           <CreateTicketPage
@@ -584,52 +654,183 @@ function DocumentsPage({ documents, loading }) {
   );
 }
 
-function ProjectDetail({ project, projectClient, requests, tickets }) {
-  const projectTicketCount = tickets.filter((ticket) => ticket.project?._id === project?._id).length;
-
+function ProjectDetail({ loading, onStatusChange, project, projectClient, requests, tickets }) {
   if (!project) {
     return <p className="mt-8 rounded-lg border border-[#d3d8e3] bg-white p-5 text-sm text-[#596274]">Loading project...</p>;
   }
 
+  const currentPhase = resolveCurrentPhase(project.planning || []);
+  const currentSprint = resolveCurrentSprint(currentPhase);
+  const resolvedTickets = tickets.filter((ticket) => ticket.status === "resolved").length;
+  const projectTimeline = projectExpectedTime(project);
+
   return (
-    <section className="mt-8 rounded-[1.75rem] border border-[#d8dde5] bg-white p-6 shadow-sm">
-      <button className="rounded-md border border-[#cbd3df] bg-white px-3 py-1 text-sm font-semibold" onClick={() => routeTo("/member/projects")} type="button">
+    <section className="mt-8 rounded-lg border border-[#d8dde5] bg-white p-5 shadow-sm">
+      <button className="rounded-md border border-[#cbd3df] px-3 py-2 text-sm font-semibold text-[#414c5a]" onClick={() => routeTo("/member/projects")} type="button">
         Back to projects
       </button>
-      <div className="mt-5">
-        <span className="rounded-md bg-[#eef1f7] px-2 py-1 text-xs font-semibold capitalize text-[#4b5d8c]">{project.status}</span>
-        <h2 className="mt-3 text-3xl font-bold">{project.name}</h2>
-        <p className="mt-2 text-sm text-[#596274]">{project.description || "No project description"}</p>
+      <div className="mt-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="max-w-3xl">
+          <span className="rounded-md bg-[#eef1f7] px-2 py-1 text-xs font-semibold capitalize text-[#4b5d8c]">{project.status}</span>
+          <h2 className="mt-3 text-2xl font-semibold">{project.name}</h2>
+          <p className="mt-2 text-sm leading-6 text-[#596274]">{project.description || "No project description"}</p>
+        </div>
+        <div className="rounded-lg bg-[#f2f5fa] px-4 py-3 text-sm text-[#415048]">
+          <p className="font-semibold text-[#17201c]">Timeline</p>
+          <p className="mt-1">{projectTimeline}</p>
+        </div>
       </div>
 
       <div className="mt-6 grid gap-4 md:grid-cols-3">
         <SummaryCard label="Documents" value={projectClient?.agreementDocument?.url ? 1 : 0} />
         <SummaryCard label="Requests" value={requests.length} />
-        <SummaryCard label="Tickets" value={projectTicketCount} />
+        <SummaryCard label="Tickets" value={tickets.length} />
       </div>
 
       <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <button className="h-12 rounded-md border border-[#cbd3df] bg-white px-4 text-sm font-semibold" onClick={() => routeTo("/member/documents")} type="button">
-          Open documents page
+        <SummaryCard label="Current phase" value={currentPhase?.name || "Not set"} />
+        <SummaryCard label="Current sprint" value={currentSprint?.name || "Not set"} />
+        <SummaryCard label="Timeline" value={projectTimeline} />
+        <SummaryCard label="Resolved tickets" value={`${resolvedTickets}/${tickets.length || 0}`} />
+      </div>
+
+      <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <button className="rounded-md border border-[#c7ced8] px-3 py-2 text-sm font-semibold text-[#414c5a]" onClick={() => routeTo("/member/documents")} type="button">
+          Documents
         </button>
-        <button className="h-12 rounded-md border border-[#cbd3df] bg-white px-4 text-sm font-semibold" onClick={() => routeTo("/member/requests")} type="button">
-          Open requests page
+        <button className="rounded-md border border-[#c7ced8] px-3 py-2 text-sm font-semibold text-[#414c5a]" onClick={() => routeTo("/member/requests")} type="button">
+          Requests
         </button>
-        <button className="h-12 rounded-md bg-[#4b5d8c] px-4 text-sm font-semibold text-white" onClick={() => routeTo(`/member/projects/${project._id}/tickets/new`)} type="button">
-          Raise ticket
+        <button className="rounded-md border border-[#c7ced8] px-3 py-2 text-sm font-semibold text-[#414c5a]" onClick={() => routeTo("/member/tickets")} type="button">
+          Tickets
         </button>
-        <button className="h-12 rounded-md bg-[#243c5a] px-4 text-sm font-semibold text-white" onClick={() => routeTo(`/member/projects/${project._id}/requests/new`)} type="button">
-          Raise request
+        <button className="rounded-md bg-[#4b5d8c] px-3 py-2 text-sm font-semibold text-white" onClick={() => routeTo(`/member/projects/${project._id}/tickets/new`)} type="button">
+          Create ticket
+        </button>
+        <button className="rounded-md bg-[#243c5a] px-3 py-2 text-sm font-semibold text-white" onClick={() => routeTo(`/member/projects/${project._id}/requests/new`)} type="button">
+          Create request
         </button>
       </div>
 
-      <div className="mt-6 rounded-2xl border border-[#edf0f4] bg-[#fbfcfe] p-5">
-        <h3 className="text-lg font-semibold">Project details</h3>
-        <p className="mt-3 text-sm text-[#596274]">Client: {project.clientEmail || "No client assigned"}</p>
-        <p className="mt-2 text-sm text-[#596274]">Assigned members: {project.members?.length || 0}</p>
-        <p className="mt-2 text-sm text-[#596274]">
-          Agreement document: {projectClient?.agreementDocument?.originalName || "No document attached"}
-        </p>
+      <div className="mt-6 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+        <div className="rounded-lg border border-[#d8dde5] bg-white p-5 shadow-sm">
+          <h3 className="text-lg font-semibold">Project details</h3>
+          <p className="mt-3 text-sm text-[#596274]">Client: {project.clientEmail || "No client assigned"}</p>
+          <p className="mt-2 text-sm text-[#596274]">Assigned members: {project.members?.length || 0}</p>
+          <p className="mt-2 text-sm text-[#596274]">
+            Agreement document: {projectClient?.agreementDocument?.originalName || "No document attached"}
+          </p>
+          <p className="mt-2 text-sm text-[#596274]">Current phase outcome: {currentPhase?.outcome || "Not set"}</p>
+          <p className="mt-2 text-sm text-[#596274]">Current sprint outcome: {currentSprint?.outcome || "Not set"}</p>
+        </div>
+
+        <div className="rounded-lg border border-[#d8dde5] bg-white p-5 shadow-sm">
+          <h3 className="text-lg font-semibold">Assigned members</h3>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {(project.members || []).map((member) => (
+              <span className="rounded-full border border-[#d8dde5] bg-white px-3 py-2 text-sm text-[#31423a]" key={member._id}>
+                {member.name}
+              </span>
+            ))}
+            {!project.members?.length ? <p className="text-sm text-[#596274]">No members assigned.</p> : null}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-6 rounded-lg border border-[#d8dde5] bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-lg font-semibold">Project tickets</h3>
+            <p className="mt-1 text-sm text-[#596274]">View work items for this project directly from the project page.</p>
+          </div>
+          <button className="rounded-md border border-[#c7ced8] px-3 py-2 text-sm font-semibold text-[#414c5a] sm:self-start" onClick={() => routeTo("/member/tickets")} type="button">
+            Ticket workspace
+          </button>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          {tickets.map((ticket) => (
+            <article className="rounded-md border border-[#d8dde5] bg-[#fbfcfe] p-3 shadow-sm" key={ticket._id}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h4 className="truncate text-sm font-semibold text-[#17201c]">{ticket.title}</h4>
+                  <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#596274]">{ticket.description || "No description"}</p>
+                </div>
+                <span className="shrink-0 rounded-md bg-[#eef1f7] px-2 py-1 text-[11px] font-semibold capitalize text-[#4b5d8c]">
+                  {ticket.status?.replaceAll("_", " ")}
+                </span>
+              </div>
+
+              <div className="mt-3 space-y-1 text-xs text-[#596274]">
+                <p className="truncate">Assignee: {ticket.assignedTo?.name || "Unassigned"}</p>
+                <p className="truncate">Creator: {ticket.createdBy?.name || "Member"}</p>
+                <p>Due: {formatDate(ticket.deadline)}</p>
+              </div>
+
+              <div className="mt-3 flex items-center gap-2">
+                <button
+                  className="rounded-md border border-[#c7ced8] px-2.5 py-1.5 text-xs font-semibold text-[#414c5a]"
+                  onClick={() => routeTo(`/member/tickets/${ticket._id}`)}
+                  type="button"
+                >
+                  View
+                </button>
+                <select
+                  className="min-w-0 flex-1 rounded-md border border-[#c7ced8] px-2.5 py-1.5 text-xs font-semibold capitalize outline-none focus:border-[#4b5d8c] focus:ring-2 focus:ring-[#4b5d8c]/20"
+                  disabled={loading}
+                  onChange={(event) => onStatusChange(ticket._id, event.target.value)}
+                  value={ticket.status}
+                >
+                  <option value="open">Open</option>
+                  <option value="in_progress">In progress</option>
+                  <option value="resolved">Resolved</option>
+                </select>
+              </div>
+            </article>
+          ))}
+          {!tickets.length ? (
+            <p className="rounded-lg border border-[#d3d8e3] bg-white p-5 text-sm text-[#596274]">
+              {loading ? "Loading tickets..." : "No tickets have been created for this project yet."}
+            </p>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="mt-6 rounded-lg border border-[#d8dde5] bg-white p-5 shadow-sm">
+        <h3 className="text-lg font-semibold">Delivery plan</h3>
+        <div className="mt-4 space-y-4">
+          {(project.planning || []).map((phase, phaseIndex) => (
+            <article className="rounded-lg border border-[#d8dde5] bg-[#fbfcfe] p-4 shadow-sm" key={`${phase.name || "phase"}-${phaseIndex}`}>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-[#4b5d8c]">{phase.name || `Phase ${phaseIndex + 1}`}</p>
+                  <p className="mt-1 text-sm text-[#596274]">
+                    {formatDate(phase.startDate)} to {formatDate(phase.endDate)}
+                  </p>
+                </div>
+                <span className="rounded-md bg-[#eef1f7] px-2 py-1 text-xs font-semibold text-[#4b5d8c]">
+                  {(phase.sprints || []).length} sprints
+                </span>
+              </div>
+              <p className="mt-3 text-sm text-[#596274]">{phase.outcome || "No phase outcome defined."}</p>
+
+              <div className="mt-4 grid gap-3 xl:grid-cols-2">
+                {(phase.sprints || []).map((sprint, sprintIndex) => (
+                  <div className="rounded-lg border border-[#edf0f4] bg-white p-4" key={`${sprint.name || "sprint"}-${sprintIndex}`}>
+                    <p className="text-sm font-semibold">{sprint.name || `Sprint ${sprintIndex + 1}`}</p>
+                    <p className="mt-1 text-sm text-[#596274]">
+                      {formatDate(sprint.startDate)} to {formatDate(sprint.endDate)}
+                    </p>
+                    <p className="mt-2 text-sm text-[#596274]">{sprint.outcome || "No sprint outcome defined."}</p>
+                    <p className="mt-3 text-sm font-semibold text-[#4b5d8c]">Planned tickets: {sprint.tickets?.length || 0}</p>
+                  </div>
+                ))}
+                {!phase.sprints?.length ? <p className="text-sm text-[#596274]">No sprints planned for this phase.</p> : null}
+              </div>
+            </article>
+          ))}
+          {!project.planning?.length ? <p className="text-sm text-[#596274]">No delivery plan has been added to this project yet.</p> : null}
+        </div>
       </div>
     </section>
   );
@@ -747,7 +948,7 @@ function CreateRequestPage({ loading, onBack, onRequestChange, onSubmit, project
 
 function SummaryCard({ label, value }) {
   return (
-    <article className="rounded-lg border border-[#d8dde5] bg-white p-5 shadow-sm">
+    <article className="rounded-lg border border-[#d8dde5] bg-white p-4 shadow-sm">
       <p className="text-sm font-semibold text-[#596274]">{label}</p>
       <strong className="mt-2 block text-3xl">{value}</strong>
     </article>

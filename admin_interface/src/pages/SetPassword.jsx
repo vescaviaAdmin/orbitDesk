@@ -1,6 +1,26 @@
 import { useMemo, useState } from "react";
 import { setPassword as submitPasswordSetup } from "../api/admin";
 
+function resolveClientAppUrl() {
+  const configuredUrl = import.meta.env.VITE_CLIENT_URL?.trim();
+
+  if (configuredUrl) {
+    return configuredUrl.replace(/\/$/, "");
+  }
+
+  const { hostname, origin, protocol } = window.location;
+
+  if (hostname === "localhost" || hostname === "127.0.0.1") {
+    return `${protocol}//${hostname}:5173`;
+  }
+
+  if (hostname.includes("orbitdesk-admin")) {
+    return origin.replace("orbitdesk-admin", "orbitdesk-client");
+  }
+
+  return origin;
+}
+
 function SetPassword() {
   const token = useMemo(() => new URLSearchParams(window.location.search).get("token") || "", []);
   const role = useMemo(() => new URLSearchParams(window.location.search).get("role") || "member", []);
@@ -16,8 +36,12 @@ function SetPassword() {
     setError("");
 
     try {
-      await submitPasswordSetup(role, { token, password });
-      setStatus(`Password set. You can now login from the ${role} login screen.`);
+      const result = await submitPasswordSetup(role, { token, password });
+      const redirectPath = result.redirectTo || (role === "client" ? "/client/login" : "/member/login");
+      const redirectUrl = new URL(redirectPath, `${resolveClientAppUrl()}/`);
+
+      setStatus("Password set. Redirecting to login...");
+      window.location.assign(redirectUrl.toString());
     } catch (requestError) {
       setError(requestError.message);
     } finally {
