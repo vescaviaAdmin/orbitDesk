@@ -30,17 +30,47 @@ const ticketSchema = new mongoose.Schema(
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Member",
-      required: true,
+      default: null,
+    },
+    createdByAdmin: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Admin",
+      default: null,
     },
     assignedTo: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Member",
       required: true,
     },
+    sprint: {
+      phaseIndex: {
+        type: Number,
+        default: -1,
+      },
+      phaseName: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+      sprintIndex: {
+        type: Number,
+        default: -1,
+      },
+      sprintName: {
+        type: String,
+        trim: true,
+        default: "",
+      },
+    },
     status: {
       type: String,
       enum: ["open", "in_progress", "resolved"],
       default: "open",
+    },
+    ownerAdmin: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Admin",
+      default: null,
     },
   },
   {

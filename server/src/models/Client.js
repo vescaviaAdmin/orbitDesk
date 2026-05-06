@@ -50,6 +50,11 @@ const clientSchema = new mongoose.Schema(
       expiresAt: Date,
       verifiedAt: Date,
     },
+    ownerAdmin: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Admin",
+      default: null,
+    },
   },
   {
     timestamps: true,

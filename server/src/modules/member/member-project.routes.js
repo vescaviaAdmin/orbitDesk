@@ -14,7 +14,7 @@ async function requireMember(request, fastify) {
   }
 
   const member = await Member.findById(request.user.sub);
-  if (!member || member.status !== "active") {
+  if (!member || member.status !== "active" || !member.ownerAdmin) {
     throw fastify.httpErrors.unauthorized("Active member account is required");
   }
 
@@ -28,14 +28,33 @@ function hasProjectMember(project, memberId) {
   });
 }
 
+function resolveSprintSelection(project, sprintSelection, fastify) {
+  const [phaseIndexRaw, sprintIndexRaw] = String(sprintSelection || "").split(":");
+  const phaseIndex = Number(phaseIndexRaw);
+  const sprintIndex = Number(sprintIndexRaw);
+  const phase = project.planning?.[phaseIndex];
+  const sprint = phase?.sprints?.[sprintIndex];
+
+  if (!Number.isInteger(phaseIndex) || !Number.isInteger(sprintIndex) || !phase || !sprint) {
+    throw fastify.httpErrors.badRequest("A valid sprint selection is required");
+  }
+
+  return {
+    phaseIndex,
+    phaseName: phase.name || `Phase ${phaseIndex + 1}`,
+    sprintIndex,
+    sprintName: sprint.name || `Sprint ${sprintIndex + 1}`,
+  };
+}
+
 async function memberProjectRoutes(fastify) {
   fastify.get("/member/projects", async (request) => {
     const member = await requireMember(request, fastify);
 
-    const projects = await Project.find({ members: member._id })
+    const projects = await Project.find({ members: member._id, ownerAdmin: member.ownerAdmin })
       .sort({ createdAt: -1 })
       .populate("members", "name email status")
-      .select("name clientEmail status description members createdAt");
+      .select("name clientEmail status description planning members createdAt");
 
     return {
       projects,
@@ -44,24 +63,24 @@ async function memberProjectRoutes(fastify) {
 
   fastify.get("/member/projects/:projectId", async (request) => {
     const member = await requireMember(request, fastify);
-    const project = await Project.findById(request.params.projectId)
+    const project = await Project.findOne({ _id: request.params.projectId, ownerAdmin: member.ownerAdmin })
       .populate("members", "name email status")
-      .select("name clientEmail status description members createdAt");
+      .select("name clientEmail status description planning members createdAt");
 
     if (!project || !hasProjectMember(project, member.id)) {
       throw fastify.httpErrors.notFound("Project not found");
     }
 
-    const tickets = await Ticket.find({ project: project._id })
+    const tickets = await Ticket.find({ project: project._id, ownerAdmin: member.ownerAdmin })
       .sort({ createdAt: -1 })
       .populate("createdBy", "name email")
       .populate("assignedTo", "name email");
-    const requests = await Request.find({ project: project._id })
+    const requests = await Request.find({ project: project._id, ownerAdmin: member.ownerAdmin })
       .sort({ createdAt: -1 })
       .populate("createdBy", "name email");
 
     const client = project.clientEmail
-      ? await Client.findOne({ email: project.clientEmail }).select("name email agreementDocument")
+      ? await Client.findOne({ email: project.clientEmail, ownerAdmin: member.ownerAdmin }).select("name email agreementDocument")
       : null;
 
     return {
@@ -75,7 +94,7 @@ async function memberProjectRoutes(fastify) {
   fastify.get("/member/tickets", async (request) => {
     const member = await requireMember(request, fastify);
 
-    const tickets = await Ticket.find({ assignedTo: member._id })
+    const tickets = await Ticket.find({ assignedTo: member._id, ownerAdmin: member.ownerAdmin })
       .sort({ createdAt: -1 })
       .populate("project", "name")
       .populate("createdBy", "name email")
@@ -88,7 +107,7 @@ async function memberProjectRoutes(fastify) {
 
   fastify.get("/member/tickets/:ticketId", async (request) => {
     const member = await requireMember(request, fastify);
-    const ticket = await Ticket.findById(request.params.ticketId)
+    const ticket = await Ticket.findOne({ _id: request.params.ticketId, ownerAdmin: member.ownerAdmin })
       .populate("project", "name clientEmail status description members")
       .populate("createdBy", "name email")
       .populate("assignedTo", "name email");
@@ -104,10 +123,10 @@ async function memberProjectRoutes(fastify) {
 
   fastify.post("/member/projects/:projectId/tickets", async (request, reply) => {
     const member = await requireMember(request, fastify);
-    const { title, description = "", assignedTo, deadline, status = "open", urls = [] } = request.body || {};
+    const { title, description = "", assignedTo, deadline, sprintSelection, status = "open", urls = [] } = request.body || {};
 
-    if (!title || !assignedTo || !deadline) {
-      throw fastify.httpErrors.badRequest("title, assignedTo, and deadline are required");
+    if (!title || !assignedTo || !deadline || !sprintSelection) {
+      throw fastify.httpErrors.badRequest("title, assignedTo, deadline, and sprintSelection are required");
     }
 
     if (!mongoose.Types.ObjectId.isValid(assignedTo)) {
@@ -120,7 +139,10 @@ async function memberProjectRoutes(fastify) {
 
     const normalizedUrls = Array.isArray(urls) ? urls.filter(Boolean) : [];
 
-    const project = await Project.findById(request.params.projectId).populate("members", "name email status");
+    const project = await Project.findOne({ _id: request.params.projectId, ownerAdmin: member.ownerAdmin }).populate(
+      "members",
+      "name email status",
+    );
 
     if (!project || !hasProjectMember(project, member.id)) {
       throw fastify.httpErrors.notFound("Project not found");
@@ -130,6 +152,8 @@ async function memberProjectRoutes(fastify) {
       throw fastify.httpErrors.badRequest("Ticket can only be assigned to a member in this project");
     }
 
+    const sprint = resolveSprintSelection(project, sprintSelection, fastify);
+
     const ticket = await Ticket.create({
       project: project._id,
       title,
@@ -138,7 +162,9 @@ async function memberProjectRoutes(fastify) {
       deadline: new Date(deadline),
       createdBy: member._id,
       assignedTo,
+      sprint,
       status,
+      ownerAdmin: member.ownerAdmin,
     });
 
     await ticket.populate("createdBy", "name email");
@@ -161,7 +187,7 @@ async function memberProjectRoutes(fastify) {
       throw fastify.httpErrors.badRequest("status must be open, in_progress, or resolved");
     }
 
-    const ticket = await Ticket.findById(request.params.ticketId)
+    const ticket = await Ticket.findOne({ _id: request.params.ticketId, ownerAdmin: member.ownerAdmin })
       .populate("project", "name members")
       .populate("createdBy", "name email")
       .populate("assignedTo", "name email");
@@ -188,7 +214,10 @@ async function memberProjectRoutes(fastify) {
       throw fastify.httpErrors.badRequest("title is required");
     }
 
-    const project = await Project.findById(request.params.projectId).populate("members", "name email status");
+    const project = await Project.findOne({ _id: request.params.projectId, ownerAdmin: member.ownerAdmin }).populate(
+      "members",
+      "name email status",
+    );
 
     if (!project || !hasProjectMember(project, member.id)) {
       throw fastify.httpErrors.notFound("Project not found");
@@ -199,6 +228,7 @@ async function memberProjectRoutes(fastify) {
       title,
       description,
       createdBy: member._id,
+      ownerAdmin: member.ownerAdmin,
     });
 
     await createdRequest.populate("createdBy", "name email");

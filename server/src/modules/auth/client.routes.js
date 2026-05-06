@@ -1,8 +1,11 @@
+import Admin from "../../models/Admin.js";
 import Client from "../../models/Client.js";
 import Member from "../../models/Member.js";
+import env from "../../config/env.js";
 import { sendClientOtp } from "../mail/mail.service.js";
 import { compareSecret, hashSecret } from "../../utils/password.js";
 import { createNumericOtp, createSessionToken } from "../../utils/tokens.js";
+import { assertEmailAvailable, normalizeEmail } from "../../utils/identity.js";
 
 async function issueClientOtp(fastify, client) {
   const otp = createNumericOtp();
@@ -23,20 +26,18 @@ async function issueClientOtp(fastify, client) {
 
 async function clientAuthRoutes(fastify) {
   fastify.post("/auth/client/register", async (request, reply) => {
-    const { name, email, password } = request.body || {};
+    const { name, password } = request.body || {};
+    const normalizedEmail = normalizeEmail(request.body?.email);
 
-    if (!name || !email || !password) {
+    if (!name || !normalizedEmail || !password) {
       throw fastify.httpErrors.badRequest("name, email, and password are required");
     }
 
-    const existingClient = await Client.findOne({ email });
-    if (existingClient) {
-      throw fastify.httpErrors.conflict("Client email already exists");
-    }
+    await assertEmailAvailable(normalizedEmail, fastify);
 
     const client = await Client.create({
       name,
-      email,
+      email: normalizedEmail,
       passwordHash: await hashSecret(password),
       passwordSetAt: new Date(),
       status: "active",
@@ -51,13 +52,14 @@ async function clientAuthRoutes(fastify) {
   });
 
   fastify.post("/auth/client/request-otp", async (request) => {
-    const { email, password } = request.body || {};
+    const normalizedEmail = normalizeEmail(request.body?.email);
+    const { password } = request.body || {};
 
-    if (!email || !password) {
+    if (!normalizedEmail || !password) {
       throw fastify.httpErrors.badRequest("email and password are required");
     }
 
-    const client = await Client.findOne({ email });
+    const client = await Client.findOne({ email: normalizedEmail });
     if (!client || client.status !== "active" || !(await compareSecret(password, client.passwordHash))) {
       throw fastify.httpErrors.unauthorized("Invalid client credentials");
     }
@@ -66,20 +68,42 @@ async function clientAuthRoutes(fastify) {
   });
 
   fastify.post("/auth/login", async (request) => {
-    const { email, password } = request.body || {};
+    const normalizedEmail = normalizeEmail(request.body?.email);
+    const { password } = request.body || {};
 
-    if (!email || !password) {
+    if (!normalizedEmail || !password) {
       throw fastify.httpErrors.badRequest("email and password are required");
     }
 
-    const [member, client] = await Promise.all([Member.findOne({ email }), Client.findOne({ email })]);
+    const [admin, member, client] = await Promise.all([
+      Admin.findOne({ email: normalizedEmail }),
+      Member.findOne({ email: normalizedEmail }),
+      Client.findOne({ email: normalizedEmail }),
+    ]);
+    const adminIsValid =
+      admin && admin.status === "active" && admin.passwordHash && (await compareSecret(password, admin.passwordHash));
     const memberIsValid =
       member && member.status === "active" && member.passwordHash && (await compareSecret(password, member.passwordHash));
     const clientIsValid =
       client && client.status === "active" && client.passwordHash && (await compareSecret(password, client.passwordHash));
 
-    if (memberIsValid && clientIsValid) {
-      throw fastify.httpErrors.conflict("Email is assigned to both member and client accounts. Contact admin.");
+    const validRoles = [adminIsValid, memberIsValid, clientIsValid].filter(Boolean).length;
+    if (validRoles > 1) {
+      throw fastify.httpErrors.conflict("Email is assigned to multiple account types. Contact support.");
+    }
+
+    if (adminIsValid) {
+      return {
+        token: createSessionToken({ sub: admin.id, role: "admin" }),
+        role: "admin",
+        redirectTo: "/",
+        appUrl: env.adminUrl,
+        user: {
+          id: admin.id,
+          name: admin.name || admin.email,
+          email: admin.email,
+        },
+      };
     }
 
     if (memberIsValid) {
@@ -87,6 +111,7 @@ async function clientAuthRoutes(fastify) {
         token: createSessionToken({ sub: member.id, role: "member" }),
         role: "member",
         redirectTo: "/member/dashboard",
+        appUrl: env.clientUrl,
         user: {
           id: member.id,
           name: member.name,
@@ -103,13 +128,14 @@ async function clientAuthRoutes(fastify) {
   });
 
   fastify.post("/auth/client/login", async (request) => {
-    const { email, password, otp } = request.body || {};
+    const normalizedEmail = normalizeEmail(request.body?.email);
+    const { password, otp } = request.body || {};
 
-    if (!email || !password || !otp) {
+    if (!normalizedEmail || !password || !otp) {
       throw fastify.httpErrors.badRequest("email, password, and otp are required");
     }
 
-    const client = await Client.findOne({ email });
+    const client = await Client.findOne({ email: normalizedEmail });
     const otpIsExpired = !client?.otp?.expiresAt || client.otp.expiresAt.getTime() < Date.now();
 
     if (
@@ -131,6 +157,7 @@ async function clientAuthRoutes(fastify) {
       token: createSessionToken({ sub: client.id, role: "client" }),
       role: "client",
       redirectTo: "/client/dashboard",
+      appUrl: env.clientUrl,
       user: {
         id: client.id,
         name: client.name,

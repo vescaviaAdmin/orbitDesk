@@ -49,6 +49,16 @@ export async function sendMemberPasswordSetup(app, member, token) {
   });
 }
 
+export async function sendAdminPasswordSetup(app, admin, token) {
+  const setupUrl = `${env.adminUrl}/set-password?role=admin&token=${token}`;
+
+  await sendMail(app, {
+    to: admin.email,
+    subject: "Set your OrbitDesk admin password",
+    text: `Hello ${admin.name || "admin"}, set your admin password here: ${setupUrl}`,
+  });
+}
+
 export async function sendClientPasswordSetup(app, client, token) {
   const setupUrl = `${env.adminUrl}/set-password?role=client&token=${token}`;
 

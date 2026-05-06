@@ -1,11 +1,11 @@
 import mongoose from "mongoose";
 
-const memberSchema = new mongoose.Schema(
+const adminSchema = new mongoose.Schema(
   {
     name: {
       type: String,
-      required: true,
       trim: true,
+      default: "",
     },
     email: {
       type: String,
@@ -27,15 +27,10 @@ const memberSchema = new mongoose.Schema(
       enum: ["invited", "active"],
       default: "invited",
     },
-    ownerAdmin: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Admin",
-      default: null,
-    },
   },
   {
     timestamps: true,
   },
 );
 
-export default mongoose.model("Member", memberSchema);
+export default mongoose.model("Admin", adminSchema);

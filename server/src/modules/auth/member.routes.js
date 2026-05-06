@@ -1,16 +1,18 @@
 import Member from "../../models/Member.js";
 import { compareSecret, hashSecret } from "../../utils/password.js";
 import { createSessionToken } from "../../utils/tokens.js";
+import { normalizeEmail } from "../../utils/identity.js";
 
 async function memberAuthRoutes(fastify) {
   fastify.post("/auth/member/login", async (request) => {
-    const { email, password } = request.body || {};
+    const normalizedEmail = normalizeEmail(request.body?.email);
+    const { password } = request.body || {};
 
-    if (!email || !password) {
+    if (!normalizedEmail || !password) {
       throw fastify.httpErrors.badRequest("email and password are required");
     }
 
-    const member = await Member.findOne({ email });
+    const member = await Member.findOne({ email: normalizedEmail });
     if (!member || member.status !== "active" || !(await compareSecret(password, member.passwordHash))) {
       throw fastify.httpErrors.unauthorized("Invalid member credentials");
     }
