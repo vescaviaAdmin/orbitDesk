@@ -91,15 +91,15 @@ function ClientDashboard() {
       projects.map((entry) => {
         const currentPhase = resolveCurrentPhase(entry.project.planning || []);
         const currentSprint = resolveCurrentSprint(currentPhase);
-        const totalTickets = entry.tickets.length;
-        const solvedTickets = entry.tickets.filter((ticket) => ticket.status === "resolved").length;
+        const totalPhases = entry.project.planning?.length || 0;
+        const totalSprints = (entry.project.planning || []).reduce((total, phase) => total + (phase.sprints?.length || 0), 0);
 
         return {
           ...entry,
           currentPhase,
           currentSprint,
-          solvedTickets,
-          totalTickets,
+          totalPhases,
+          totalSprints,
           expectedTime: projectExpectedTime(entry.project),
         };
       }),
@@ -110,19 +110,19 @@ function ClientDashboard() {
     () => [
       { label: "Projects", value: projectSummaries.length, tone: "text-[#214f43]" },
       {
-        label: "Solved tickets",
-        value: projectSummaries.reduce((sum, project) => sum + project.solvedTickets, 0),
+        label: "Phases",
+        value: projectSummaries.reduce((sum, project) => sum + project.totalPhases, 0),
         tone: "text-[#214f43]",
+      },
+      {
+        label: "Sprints",
+        value: projectSummaries.reduce((sum, project) => sum + project.totalSprints, 0),
+        tone: "text-[#243c5a]",
       },
       {
         label: "Open issues",
         value: issues.filter((issue) => issue.status === "open").length,
         tone: "text-[#7a4f1a]",
-      },
-      {
-        label: "Reviewing",
-        value: issues.filter((issue) => issue.status === "reviewing").length,
-        tone: "text-[#243c5a]",
       },
     ],
     [issues, projectSummaries],
@@ -297,7 +297,8 @@ function ClientDashboard() {
                 <div className="mt-5 grid gap-3 md:grid-cols-4">
                   <MetricCard label="Current phase" value={activeProject.currentPhase?.name || "Not set"} />
                   <MetricCard label="Current sprint" value={activeProject.currentSprint?.name || "Not set"} />
-                  <MetricCard label="Solved tickets" value={`${activeProject.solvedTickets}/${activeProject.totalTickets || 0}`} />
+                  <MetricCard label="Total phases" value={String(activeProject.totalPhases)} />
+                  <MetricCard label="Total sprints" value={String(activeProject.totalSprints)} />
                   <MetricCard label="Client issues" value={String(activeProject.issues.length)} />
                 </div>
 
@@ -355,6 +356,21 @@ function ClientDashboard() {
                               </span>
                             </div>
                             <p className="mt-3 text-sm leading-6 text-[#5a6760]">{phase.outcome || "No phase outcome defined."}</p>
+                            <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                              {(phase.sprints || []).map((sprint, sprintIndex) => (
+                                <div className="rounded-lg border border-[#e4e9e3] bg-[#fbfcfa] p-4" key={`${sprint.name}-${sprintIndex}`}>
+                                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[#7a8780]">Sprint {sprintIndex + 1}</p>
+                                  <h4 className="mt-2 font-semibold text-[#17201c]">{sprint.name || `Sprint ${sprintIndex + 1}`}</h4>
+                                  <p className="mt-1 text-sm text-[#5a6760]">
+                                    {sprint.startDate || sprint.endDate
+                                      ? `${formatDate(sprint.startDate)} to ${formatDate(sprint.endDate)}`
+                                      : "Timeline not set"}
+                                  </p>
+                                  <p className="mt-3 text-sm leading-6 text-[#5a6760]">{sprint.outcome || "No sprint outcome defined."}</p>
+                                </div>
+                              ))}
+                              {!phase.sprints?.length ? <p className="text-sm text-[#5a6760]">No sprints defined in this phase.</p> : null}
+                            </div>
                           </article>
                         ))}
                         {!activeProject.project.planning?.length ? <p className="text-sm text-[#5a6760]">No planning details added yet.</p> : null}

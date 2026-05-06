@@ -3,6 +3,13 @@ import AuthShell from "../components/auth/AuthShell";
 import { loginClient, loginWithCredentials } from "../api/auth";
 
 function persistSession(session) {
+  if (session.role === "admin") {
+    const serializedSession = encodeURIComponent(JSON.stringify(session));
+    const targetUrl = new URL(`/auth-complete?session=${serializedSession}`, session.appUrl || "http://localhost:5174");
+    window.location.assign(targetUrl.toString());
+    return;
+  }
+
   localStorage.setItem("orbitdesk_session", JSON.stringify(session));
   window.history.pushState({}, "", session.redirectTo);
   window.dispatchEvent(new PopStateEvent("popstate"));

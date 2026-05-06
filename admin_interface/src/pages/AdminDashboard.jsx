@@ -3,21 +3,25 @@ import {
   addClient,
   addMember,
   addProject,
-  getAdminSecret,
+  addProjectTicket,
+  clearAdminSession,
+  getAdminSession,
+  getAdminSessionStatus,
   getProject,
   listClients,
   listIssues,
   listMembers,
   listProjects,
   listRequests,
+  updateSprintStatus,
   updateProjectMembers,
-  verifyAdminSecret,
 } from "../api/admin";
 
 const emptyForms = {
   client: { name: "", email: "", company: "", phone: "", agreement: null },
   member: { name: "", email: "" },
   project: { name: "", clientEmail: "", status: "planned", description: "", planning: [] },
+  projectTicket: { title: "", description: "", assignedTo: "", deadline: "", sprintSelection: "", status: "open", urlsText: "" },
 };
 
 function createPlanningTicket() {
@@ -75,8 +79,9 @@ function formatDate(value) {
 
 function AdminDashboard() {
   const [path, setPath] = useState(window.location.pathname);
-  const [adminSecret, setAdminSecret] = useState(getAdminSecret());
-  const [isLoggedIn, setIsLoggedIn] = useState(Boolean(localStorage.getItem("orbitdesk_admin_secret")));
+  const [adminSession, setAdminSession] = useState(getAdminSession());
+  const [isLoggedIn, setIsLoggedIn] = useState(Boolean(getAdminSession().token));
+  const [currentAdmin, setCurrentAdmin] = useState(getAdminSession().user || null);
   const [forms, setForms] = useState(emptyForms);
   const [clients, setClients] = useState([]);
   const [members, setMembers] = useState([]);
@@ -190,6 +195,12 @@ function AdminDashboard() {
     return () => window.removeEventListener("popstate", handleRouteChange);
   }, []);
 
+  useEffect(() => {
+    if (!isLoggedIn) {
+      window.location.replace("/login");
+    }
+  }, [isLoggedIn]);
+
   async function loadDashboard() {
     try {
       const [clientData, memberData, projectData, requestData, issueData] = await Promise.all([
@@ -205,10 +216,12 @@ function AdminDashboard() {
       setRequests(requestData.requests || []);
       setIssues(issueData.issues || []);
     } catch (requestError) {
-      if (requestError.message === "Invalid admin secret") {
-        localStorage.removeItem("orbitdesk_admin_secret");
+      if (requestError.message.includes("Authentication") || requestError.message.includes("admin account")) {
+        clearAdminSession();
+        setAdminSession({});
+        setCurrentAdmin(null);
         setIsLoggedIn(false);
-        setAdminSecret("");
+        routeTo("/login");
       }
       setError(requestError.message);
     }
@@ -224,6 +237,17 @@ function AdminDashboard() {
       setSelectedProject(data.project);
       setProjectTickets(data.tickets || []);
       setSelectedMemberIds((data.project.members || []).map((member) => member._id));
+      setForms((current) => ({
+        ...current,
+        projectTicket: {
+          ...emptyForms.projectTicket,
+          assignedTo: data.project.members?.[0]?._id || "",
+          sprintSelection:
+            data.project.planning?.flatMap((phase, phaseIndex) =>
+              (phase.sprints || []).map((_, sprintIndex) => `${phaseIndex}:${sprintIndex}`),
+            )[0] || "",
+        },
+      }));
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -236,8 +260,28 @@ function AdminDashboard() {
       return;
     }
 
-    loadDashboard();
-  }, [isLoggedIn]);
+    async function verifySession() {
+      setLoading(true);
+      setError("");
+
+      try {
+        const data = await getAdminSessionStatus();
+        setCurrentAdmin(data.admin || adminSession.user || null);
+        await loadDashboard();
+      } catch (requestError) {
+        clearAdminSession();
+        setAdminSession({});
+        setCurrentAdmin(null);
+        setIsLoggedIn(false);
+        setError(requestError.message);
+        routeTo("/login");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    verifySession();
+  }, [adminSession.user, isLoggedIn]);
 
   useEffect(() => {
     if (isLoggedIn && projectIdFromPath) {
@@ -250,24 +294,6 @@ function AdminDashboard() {
     setSelectedMemberIds([]);
   }, [isLoggedIn, projectIdFromPath]);
 
-  async function loginAdmin(event) {
-    event.preventDefault();
-    setLoading(true);
-    setError("");
-
-    try {
-      await verifyAdminSecret(adminSecret);
-      localStorage.setItem("orbitdesk_admin_secret", adminSecret);
-      setIsLoggedIn(true);
-      routeTo("/");
-    } catch (requestError) {
-      localStorage.removeItem("orbitdesk_admin_secret");
-      setError(requestError.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
   function updateForm(formKey, event) {
     const { files, name, type, value } = event.target;
     setForms((current) => ({
@@ -275,6 +301,17 @@ function AdminDashboard() {
       [formKey]: {
         ...current[formKey],
         [name]: type === "file" ? files[0] || null : value,
+      },
+    }));
+  }
+
+  function updateProjectTicketForm(event) {
+    const { name, value } = event.target;
+    setForms((current) => ({
+      ...current,
+      projectTicket: {
+        ...current.projectTicket,
+        [name]: value,
       },
     }));
   }
@@ -470,39 +507,83 @@ function AdminDashboard() {
     }
   }
 
-  function logoutAdmin() {
-    localStorage.removeItem("orbitdesk_admin_secret");
-    setIsLoggedIn(false);
-    setAdminSecret("");
+  async function createAdminProjectTicket() {
+    if (!selectedProject) {
+      return;
+    }
+
+    setLoading(true);
     setStatus("");
     setError("");
-    routeTo("/");
+
+    try {
+      const urls = forms.projectTicket.urlsText
+        .split("\n")
+        .map((url) => url.trim())
+        .filter(Boolean);
+
+      const data = await addProjectTicket(selectedProject._id, {
+        title: forms.projectTicket.title,
+        description: forms.projectTicket.description,
+        assignedTo: forms.projectTicket.assignedTo,
+        deadline: forms.projectTicket.deadline,
+        sprintSelection: forms.projectTicket.sprintSelection,
+        status: forms.projectTicket.status,
+        urls,
+      });
+
+      setProjectTickets((current) => [data.ticket, ...current]);
+      setForms((current) => ({
+        ...current,
+        projectTicket: {
+          ...emptyForms.projectTicket,
+          assignedTo: selectedProject.members?.[0]?._id || "",
+          sprintSelection:
+            selectedProject.planning?.flatMap((phase, phaseIndex) =>
+              (phase.sprints || []).map((_, sprintIndex) => `${phaseIndex}:${sprintIndex}`),
+            )[0] || "",
+        },
+      }));
+      setStatus(data.message);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSprintStatusChange(phaseIndex, sprintIndex, statusValue) {
+    if (!selectedProject) {
+      return;
+    }
+
+    setLoading(true);
+    setStatus("");
+    setError("");
+
+    try {
+      const data = await updateSprintStatus(selectedProject._id, phaseIndex, sprintIndex, statusValue);
+      setSelectedProject(data.project);
+      setStatus(data.message);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function logoutAdmin() {
+    clearAdminSession();
+    setAdminSession({});
+    setIsLoggedIn(false);
+    setCurrentAdmin(null);
+    setStatus("");
+    setError("");
+    routeTo("/login");
   }
 
   if (!isLoggedIn) {
-    return (
-      <main className="grid min-h-screen place-items-center bg-[#f6f8fb] px-5 py-8 text-[#151b20]">
-        <form className="w-full max-w-md rounded-lg border border-[#d8dde5] bg-white p-6 shadow-sm" onSubmit={loginAdmin}>
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#6b4f1d]">OrbitDesk Admin</p>
-          <h1 className="mt-3 text-3xl font-bold">Admin login</h1>
-          <label className="mt-6 block text-sm font-semibold" htmlFor="adminSecret">
-            Admin secret
-            <input
-              className="mt-2 h-12 w-full rounded-md border border-[#c7ced8] px-3 outline-none focus:border-[#6b4f1d] focus:ring-2 focus:ring-[#6b4f1d]/20"
-              id="adminSecret"
-              onChange={(event) => setAdminSecret(event.target.value)}
-              required
-              type="password"
-              value={adminSecret}
-            />
-          </label>
-          <button className="mt-5 h-12 w-full rounded-md bg-[#6b4f1d] font-semibold text-white" type="submit">
-            {loading ? "Checking..." : "Login"}
-          </button>
-          {error ? <p className="mt-4 rounded-md bg-[#fde8e3] px-3 py-2 text-sm text-[#9f2f1f]">{error}</p> : null}
-        </form>
-      </main>
-    );
+    return null;
   }
 
   return (
@@ -511,6 +592,7 @@ function AdminDashboard() {
         <AdminHeader
           activePath={path}
           counts={{ clients: clients.length, members: members.length, projects: projects.length, requests: requests.length, issues: issues.length }}
+          currentAdmin={currentAdmin}
           onLogout={logoutAdmin}
         />
         {status ? <p className="mt-5 rounded-md bg-[#e8f5eb] px-3 py-2 text-sm text-[#1b6b3a]">{status}</p> : null}
@@ -557,11 +639,15 @@ function AdminDashboard() {
 
         {projectIdFromPath ? (
           <ProjectDetailPage
+            adminTicketForm={forms.projectTicket}
             loading={loading}
             memberSearch={memberSearch}
             onBack={() => routeTo("/projects")}
+            onCreateTicket={createAdminProjectTicket}
             onSaveMembers={saveProjectMembers}
             onSearchMembers={setMemberSearch}
+            onSprintStatusChange={handleSprintStatusChange}
+            onTicketFormChange={updateProjectTicketForm}
             onToggleMember={toggleProjectMember}
             project={selectedProject}
             searchedMembers={searchedProjectMembers}
@@ -760,7 +846,7 @@ function AdminDashboard() {
   );
 }
 
-function AdminHeader({ activePath, counts, onLogout }) {
+function AdminHeader({ activePath, counts, currentAdmin, onLogout }) {
   const navItems = [
     { label: "Dashboard", path: "/" },
     { label: `Clients (${counts.clients})`, path: "/clients" },
@@ -776,6 +862,7 @@ function AdminHeader({ activePath, counts, onLogout }) {
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#6b4f1d]">OrbitDesk Admin</p>
           <h1 className="mt-3 text-4xl font-bold">Operations dashboard</h1>
+          <p className="mt-2 text-sm text-[#5c6673]">{currentAdmin?.email || "Admin workspace"}</p>
         </div>
         <div className="grid w-full gap-2 sm:w-56">
           <button className="h-11 rounded-md bg-[#243c5a] px-4 text-sm font-semibold text-white" onClick={() => routeTo("/projects/new")} type="button">
@@ -1170,11 +1257,15 @@ function ProjectCreatePage({
 }
 
 function ProjectDetailPage({
+  adminTicketForm,
   loading,
   memberSearch,
   onBack,
+  onCreateTicket,
   onSaveMembers,
   onSearchMembers,
+  onSprintStatusChange,
+  onTicketFormChange,
   onToggleMember,
   project,
   searchedMembers,
@@ -1185,6 +1276,19 @@ function ProjectDetailPage({
   if (!project) {
     return <p className="mt-8 rounded-lg border border-[#d8dde5] bg-white p-5 text-sm text-[#5c6673]">Loading project...</p>;
   }
+
+  const sprintOptions = (project.planning || []).flatMap((phase, phaseIndex) =>
+    (phase.sprints || []).map((sprint, sprintIndex) => ({
+      value: `${phaseIndex}:${sprintIndex}`,
+      label: `${phase.name || `Phase ${phaseIndex + 1}`} -> ${sprint.name || `Sprint ${sprintIndex + 1}`}`,
+    })),
+  );
+  const ticketsBySprint = tickets.reduce((groups, ticket) => {
+    const key = ticket.sprint?.phaseName && ticket.sprint?.sprintName ? `${ticket.sprint.phaseName} -> ${ticket.sprint.sprintName}` : "Unassigned sprint";
+    groups[key] = groups[key] || [];
+    groups[key].push(ticket);
+    return groups;
+  }, {});
 
   return (
     <div className="mt-8 grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
@@ -1226,6 +1330,9 @@ function ProjectDetailPage({
                   </span>
                 </div>
                 <p className="mt-3 text-sm text-[#5c6673]">{phase.outcome || "No phase outcome defined."}</p>
+                <div className="mt-3 rounded-md border border-[#e4e9f0] bg-white px-3 py-2 text-sm">
+                  <span className="font-semibold text-[#414c5a]">Phase status:</span> <span className="capitalize text-[#5c6673]">{(phase.status || "planned").replaceAll("_", " ")}</span>
+                </div>
                 <div className="mt-4 space-y-3">
                   {(phase.sprints || []).map((sprint, sprintIndex) => (
                     <div className="rounded-lg border border-[#e4e9f0] bg-white p-3" key={`${sprint.name}-${sprintIndex}`}>
@@ -1239,6 +1346,19 @@ function ProjectDetailPage({
                         </span>
                       </div>
                       <p className="mt-2 text-sm text-[#5c6673]">{sprint.outcome || "No sprint outcome defined."}</p>
+                      <label className="mt-3 block max-w-xs text-sm font-semibold">
+                        Sprint status
+                        <select
+                          className="mt-2 h-10 w-full rounded-md border border-[#c7ced8] px-3 outline-none focus:border-[#6b4f1d] focus:ring-2 focus:ring-[#6b4f1d]/20"
+                          disabled={loading}
+                          onChange={(event) => onSprintStatusChange(phaseIndex, sprintIndex, event.target.value)}
+                          value={sprint.status || "planned"}
+                        >
+                          <option value="planned">Planned</option>
+                          <option value="in_progress">In progress</option>
+                          <option value="completed">Completed</option>
+                        </select>
+                      </label>
                       <ul className="mt-3 space-y-2">
                         {(sprint.tickets || []).map((ticket, ticketIndex) => (
                           <li className="rounded-md bg-[#f6f8fb] px-3 py-2 text-sm text-[#5c6673]" key={`${ticket.title}-${ticketIndex}`}>
@@ -1300,6 +1420,73 @@ function ProjectDetailPage({
           <h3 className="text-xl font-semibold">Tickets</h3>
           <p className="text-sm text-[#5c6673]">{tickets.length} total</p>
         </div>
+        <div className="mt-4 rounded-lg border border-[#edf0f4] bg-[#fbfcfd] p-4">
+          <h4 className="font-semibold">Raise ticket</h4>
+          <p className="mt-1 text-sm text-[#5c6673]">Create a project ticket and assign it to a selected member.</p>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <label className="block text-sm font-semibold" htmlFor="adminTicketTitle">
+              Title
+              <input className="mt-2 h-11 w-full rounded-md border border-[#c7ced8] px-3 outline-none focus:border-[#6b4f1d] focus:ring-2 focus:ring-[#6b4f1d]/20" id="adminTicketTitle" name="title" onChange={onTicketFormChange} value={adminTicketForm.title} />
+            </label>
+            <label className="block text-sm font-semibold" htmlFor="adminTicketDeadline">
+              Deadline
+              <input className="mt-2 h-11 w-full rounded-md border border-[#c7ced8] px-3 outline-none focus:border-[#6b4f1d] focus:ring-2 focus:ring-[#6b4f1d]/20" id="adminTicketDeadline" name="deadline" onChange={onTicketFormChange} type="date" value={adminTicketForm.deadline} />
+            </label>
+            <label className="block text-sm font-semibold" htmlFor="adminTicketAssignedTo">
+              Assign to member
+              <select className="mt-2 h-11 w-full rounded-md border border-[#c7ced8] px-3 outline-none focus:border-[#6b4f1d] focus:ring-2 focus:ring-[#6b4f1d]/20" id="adminTicketAssignedTo" name="assignedTo" onChange={onTicketFormChange} value={adminTicketForm.assignedTo}>
+                <option value="">Select member</option>
+                {(project.members || []).map((member) => (
+                  <option key={member._id} value={member._id}>
+                    {member.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm font-semibold" htmlFor="adminTicketStatus">
+              Status
+              <select className="mt-2 h-11 w-full rounded-md border border-[#c7ced8] px-3 outline-none focus:border-[#6b4f1d] focus:ring-2 focus:ring-[#6b4f1d]/20" id="adminTicketStatus" name="status" onChange={onTicketFormChange} value={adminTicketForm.status}>
+                <option value="open">Open</option>
+                <option value="in_progress">In progress</option>
+                <option value="resolved">Resolved</option>
+              </select>
+            </label>
+            <label className="block text-sm font-semibold md:col-span-2" htmlFor="adminTicketSprint">
+              Sprint
+              <select className="mt-2 h-11 w-full rounded-md border border-[#c7ced8] px-3 outline-none focus:border-[#6b4f1d] focus:ring-2 focus:ring-[#6b4f1d]/20" id="adminTicketSprint" name="sprintSelection" onChange={onTicketFormChange} value={adminTicketForm.sprintSelection}>
+                <option value="">Select sprint</option>
+                {sprintOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <label className="mt-3 block text-sm font-semibold" htmlFor="adminTicketDescription">
+            Description
+            <textarea className="mt-2 min-h-24 w-full rounded-md border border-[#c7ced8] px-3 py-2 outline-none focus:border-[#6b4f1d] focus:ring-2 focus:ring-[#6b4f1d]/20" id="adminTicketDescription" name="description" onChange={onTicketFormChange} value={adminTicketForm.description} />
+          </label>
+          <label className="mt-3 block text-sm font-semibold" htmlFor="adminTicketUrls">
+            URLs
+            <textarea className="mt-2 min-h-20 w-full rounded-md border border-[#c7ced8] px-3 py-2 outline-none focus:border-[#6b4f1d] focus:ring-2 focus:ring-[#6b4f1d]/20" id="adminTicketUrls" name="urlsText" onChange={onTicketFormChange} placeholder="One URL per line" value={adminTicketForm.urlsText} />
+          </label>
+          <button className="mt-4 h-11 rounded-md bg-[#243c5a] px-4 text-sm font-semibold text-white disabled:opacity-60" disabled={loading || !adminTicketForm.title || !adminTicketForm.assignedTo || !adminTicketForm.deadline || !adminTicketForm.sprintSelection} onClick={onCreateTicket} type="button">
+            {loading ? "Creating..." : "Raise ticket"}
+          </button>
+        </div>
+        <div className="mt-4 rounded-lg border border-[#edf0f4] bg-[#fbfcfd] p-4">
+          <h4 className="font-semibold">Sprint-wise tickets</h4>
+          <div className="mt-3 space-y-2">
+            {Object.entries(ticketsBySprint).map(([sprintLabel, sprintTickets]) => (
+              <div className="flex items-center justify-between rounded-md border border-[#e4e9f0] bg-white px-3 py-3 text-sm" key={sprintLabel}>
+                <span className="font-semibold text-[#414c5a]">{sprintLabel}</span>
+                <span className="text-[#5c6673]">{sprintTickets.length} tickets</span>
+              </div>
+            ))}
+            {!Object.keys(ticketsBySprint).length ? <p className="text-sm text-[#5c6673]">No tickets raised yet.</p> : null}
+          </div>
+        </div>
         <div className="mt-4 divide-y divide-[#edf0f4]">
           {tickets.map((ticket) => (
             <article className="py-4" key={ticket._id}>
@@ -1307,7 +1494,8 @@ function ProjectDetailPage({
                 <div>
                   <h4 className="font-semibold">{ticket.title}</h4>
                   <p className="text-sm text-[#5c6673]">Assigned to {ticket.assignedTo?.name || "member"}</p>
-                  <p className="mt-1 text-sm text-[#5c6673]">Created by {ticket.createdBy?.name || "member"}</p>
+                  <p className="mt-1 text-sm text-[#5c6673]">Sprint {ticket.sprint?.phaseName ? `${ticket.sprint.phaseName} -> ${ticket.sprint.sprintName}` : "Not set"}</p>
+                  <p className="mt-1 text-sm text-[#5c6673]">Created by {ticket.createdBy?.name || ticket.createdByAdmin?.name || "admin"}</p>
                   <p className="mt-1 text-sm text-[#5c6673]">Deadline {formatDate(ticket.deadline)}</p>
                 </div>
                 <StatusBadge status={ticket.status} />

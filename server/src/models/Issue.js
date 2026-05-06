@@ -27,6 +27,11 @@ const issueSchema = new mongoose.Schema(
       enum: ["open", "reviewing", "resolved"],
       default: "open",
     },
+    ownerAdmin: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Admin",
+      default: null,
+    },
   },
   {
     timestamps: true,

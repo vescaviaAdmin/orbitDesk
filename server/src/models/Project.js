@@ -36,6 +36,11 @@ const planningSprintSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    status: {
+      type: String,
+      enum: ["planned", "in_progress", "completed"],
+      default: "planned",
+    },
     tickets: [planningTicketSchema],
   },
   { _id: false },
@@ -60,6 +65,11 @@ const planningPhaseSchema = new mongoose.Schema(
       type: String,
       trim: true,
       default: "",
+    },
+    status: {
+      type: String,
+      enum: ["planned", "in_progress", "completed"],
+      default: "planned",
     },
     sprints: [planningSprintSchema],
   },
@@ -96,6 +106,11 @@ const projectSchema = new mongoose.Schema(
         ref: "Member",
       },
     ],
+    ownerAdmin: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Admin",
+      default: null,
+    },
   },
   {
     timestamps: true,

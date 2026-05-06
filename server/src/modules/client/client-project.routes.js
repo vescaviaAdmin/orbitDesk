@@ -1,7 +1,6 @@
 import Client from "../../models/Client.js";
 import Issue from "../../models/Issue.js";
 import Project from "../../models/Project.js";
-import Ticket from "../../models/Ticket.js";
 
 async function requireClient(request, fastify) {
   await fastify.authenticate(request);
@@ -11,7 +10,7 @@ async function requireClient(request, fastify) {
   }
 
   const client = await Client.findById(request.user.sub);
-  if (!client || client.status !== "active") {
+  if (!client || client.status !== "active" || !client.ownerAdmin) {
     throw fastify.httpErrors.unauthorized("Active client account is required");
   }
 
@@ -26,24 +25,17 @@ async function clientProjectRoutes(fastify) {
   fastify.get("/client/projects", async (request) => {
     const client = await requireClient(request, fastify);
 
-    const projects = await Project.find({ clientEmail: client.email })
+    const projects = await Project.find({ clientEmail: client.email, ownerAdmin: client.ownerAdmin })
       .sort({ createdAt: -1 })
       .populate("members", "name email status")
       .select("name clientEmail status description planning members createdAt");
 
     const enrichedProjects = await Promise.all(
       projects.map(async (project) => {
-        const [tickets, issues] = await Promise.all([
-          Ticket.find({ project: project._id })
-            .sort({ createdAt: -1 })
-            .populate("assignedTo", "name email")
-            .populate("createdBy", "name email"),
-          Issue.find({ project: project._id, client: client._id }).sort({ createdAt: -1 }),
-        ]);
+        const issues = await Issue.find({ project: project._id, client: client._id, ownerAdmin: client.ownerAdmin }).sort({ createdAt: -1 });
 
         return {
           project,
-          tickets,
           issues,
         };
       }),
@@ -57,7 +49,7 @@ async function clientProjectRoutes(fastify) {
   fastify.get("/client/issues", async (request) => {
     const client = await requireClient(request, fastify);
 
-    const issues = await Issue.find({ client: client._id })
+    const issues = await Issue.find({ client: client._id, ownerAdmin: client.ownerAdmin })
       .sort({ createdAt: -1 })
       .populate("project", "name status clientEmail");
 
@@ -74,7 +66,7 @@ async function clientProjectRoutes(fastify) {
       throw fastify.httpErrors.badRequest("title is required");
     }
 
-    const project = await Project.findById(request.params.projectId);
+    const project = await Project.findOne({ _id: request.params.projectId, ownerAdmin: client.ownerAdmin });
 
     if (!project || !hasClientProjectAccess(project, client.email)) {
       throw fastify.httpErrors.notFound("Project not found");
@@ -85,6 +77,7 @@ async function clientProjectRoutes(fastify) {
       client: client._id,
       title,
       description,
+      ownerAdmin: client.ownerAdmin,
     });
 
     await issue.populate("project", "name status clientEmail");

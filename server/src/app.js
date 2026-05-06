@@ -9,6 +9,7 @@ import rootRoutes from "./routes/root.js";
 import healthRoutes from "./routes/health.js";
 import clientAuthRoutes from "./modules/auth/client.routes.js";
 import memberAuthRoutes from "./modules/auth/member.routes.js";
+import adminAuthRoutes from "./modules/auth/admin.routes.js";
 import adminRoutes from "./modules/admin/admin.routes.js";
 import memberProjectRoutes from "./modules/member/member-project.routes.js";
 import clientProjectRoutes from "./modules/client/client-project.routes.js";
@@ -42,6 +43,7 @@ async function buildApp() {
   await app.register(healthRoutes);
   await app.register(clientAuthRoutes);
   await app.register(memberAuthRoutes);
+  await app.register(adminAuthRoutes);
   await app.register(adminRoutes);
   await app.register(memberProjectRoutes);
   await app.register(clientProjectRoutes);

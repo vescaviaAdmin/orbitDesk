@@ -1,17 +1,26 @@
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
-export function getAdminSecret() {
-  return localStorage.getItem("orbitdesk_admin_secret") || "";
+export function getAdminSession() {
+  return JSON.parse(localStorage.getItem("orbitdesk_admin_session") || "{}");
+}
+
+export function setAdminSession(session) {
+  localStorage.setItem("orbitdesk_admin_session", JSON.stringify(session));
+}
+
+export function clearAdminSession() {
+  localStorage.removeItem("orbitdesk_admin_session");
 }
 
 async function request(path, options = {}) {
+  const session = getAdminSession();
   const isFormData = options.body instanceof FormData;
   const { headers = {}, ...requestOptions } = options;
   const response = await fetch(`${API_URL}${path}`, {
     ...requestOptions,
     headers: {
       ...(isFormData ? {} : { "Content-Type": "application/json" }),
-      "x-admin-secret": getAdminSecret(),
+      ...(session.token ? { Authorization: `Bearer ${session.token}` } : {}),
       ...headers,
     },
   });
@@ -25,18 +34,28 @@ async function request(path, options = {}) {
   return data;
 }
 
+export function getStarted(email) {
+  return request("/auth/admin/get-started", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export function loginAdmin(credentials) {
+  return request("/auth/admin/login", {
+    method: "POST",
+    body: JSON.stringify(credentials),
+  });
+}
+
+export function getAdminSessionStatus() {
+  return request("/admin/session");
+}
+
 export function addMember(member) {
   return request("/admin/members", {
     method: "POST",
     body: JSON.stringify(member),
-  });
-}
-
-export function verifyAdminSecret(secret) {
-  return request("/admin/session", {
-    headers: {
-      "x-admin-secret": secret,
-    },
   });
 }
 
@@ -89,6 +108,20 @@ export function updateProjectMembers(projectId, memberIds) {
   return request(`/admin/projects/${projectId}/members`, {
     method: "PUT",
     body: JSON.stringify({ memberIds }),
+  });
+}
+
+export function addProjectTicket(projectId, ticket) {
+  return request(`/admin/projects/${projectId}/tickets`, {
+    method: "POST",
+    body: JSON.stringify(ticket),
+  });
+}
+
+export function updateSprintStatus(projectId, phaseIndex, sprintIndex, status) {
+  return request(`/admin/projects/${projectId}/phases/${phaseIndex}/sprints/${sprintIndex}/status`, {
+    method: "PUT",
+    body: JSON.stringify({ status }),
   });
 }
 
