@@ -1,0 +1,442 @@
+import Admin from "../../models/Admin.js";
+import Member from "../../models/Member.js";
+import Client from "../../models/Client.js";
+import Project from "../../models/Project.js";
+import Request from "../../models/Request.js";
+import Ticket from "../../models/Ticket.js";
+import Issue from "../../models/Issue.js";
+import { sendClientPasswordSetup, sendMemberPasswordSetup } from "../mail/mail.service.js";
+import { createSecureToken } from "../../utils/tokens.js";
+import { hashSecret } from "../../utils/password.js";
+import { uploadAgreementDocument } from "../uploads/agreement.service.js";
+import { assertEmailAvailable, normalizeEmail } from "../../utils/identity.js";
+
+function normalizeSprintStatus(status) {
+  return ["planned", "in_progress", "completed"].includes(status) ? status : "planned";
+}
+
+function derivePhaseStatus(sprints = []) {
+  const statuses = sprints.map((sprint) => normalizeSprintStatus(sprint?.status));
+
+  if (!statuses.length) {
+    return "planned";
+  }
+
+  if (statuses.every((status) => status === "completed")) {
+    return "completed";
+  }
+
+  if (statuses.some((status) => status === "in_progress" || status === "completed")) {
+    return "in_progress";
+  }
+
+  return "planned";
+}
+
+function normalizePlanning(planning = []) {
+  return Array.isArray(planning)
+    ? planning.map((phase) => {
+        const normalizedSprints = Array.isArray(phase?.sprints)
+          ? phase.sprints.map((sprint) => ({
+              name: sprint?.name || "",
+              startDate: sprint?.startDate || "",
+              endDate: sprint?.endDate || "",
+              outcome: sprint?.outcome || "",
+              status: normalizeSprintStatus(sprint?.status),
+              tickets: Array.isArray(sprint?.tickets)
+                ? sprint.tickets.map((ticket) => ({
+                    title: ticket?.title || "",
+                    outcome: ticket?.outcome || "",
+                  }))
+                : [],
+            }))
+          : [];
+
+        return {
+          name: phase?.name || "",
+          startDate: phase?.startDate || "",
+          endDate: phase?.endDate || "",
+          outcome: phase?.outcome || "",
+          status: derivePhaseStatus(normalizedSprints),
+          sprints: normalizedSprints,
+        };
+      })
+    : [];
+}
+
+function resolveSprintSelection(project, sprintSelection, fastify) {
+  const [phaseIndexRaw, sprintIndexRaw] = String(sprintSelection || "").split(":");
+  const phaseIndex = Number(phaseIndexRaw);
+  const sprintIndex = Number(sprintIndexRaw);
+  const phase = project.planning?.[phaseIndex];
+  const sprint = phase?.sprints?.[sprintIndex];
+
+  if (!Number.isInteger(phaseIndex) || !Number.isInteger(sprintIndex) || !phase || !sprint) {
+    throw fastify.httpErrors.badRequest("A valid sprint selection is required");
+  }
+
+  return {
+    phaseIndex,
+    phaseName: phase.name || `Phase ${phaseIndex + 1}`,
+    sprintIndex,
+    sprintName: sprint.name || `Sprint ${sprintIndex + 1}`,
+  };
+}
+
+async function requireAdmin(request, fastify) {
+  await fastify.authenticate(request);
+
+  if (request.user.role !== "admin") {
+    throw fastify.httpErrors.forbidden("Admin access required");
+  }
+
+  const admin = await Admin.findById(request.user.sub);
+  if (!admin || admin.status !== "active") {
+    throw fastify.httpErrors.unauthorized("Active admin account is required");
+  }
+
+  return admin;
+}
+
+async function adminRoutes(fastify) {
+  fastify.get("/admin/session", async (request) => {
+    const admin = await requireAdmin(request, fastify);
+
+    return {
+      ok: true,
+      admin: {
+        id: admin.id,
+        name: admin.name || admin.email,
+        email: admin.email,
+      },
+    };
+  });
+
+  fastify.post("/admin/clients", async (request, reply) => {
+    const admin = await requireAdmin(request, fastify);
+
+    if (!request.isMultipart()) {
+      throw fastify.httpErrors.badRequest("Client onboarding requires multipart form data");
+    }
+
+    const parts = request.parts();
+    const fields = {};
+    let agreementFile = null;
+
+    for await (const part of parts) {
+      if (part.type === "file") {
+        if (part.fieldname === "agreement") {
+          agreementFile = {
+            buffer: await part.toBuffer(),
+            filename: part.filename,
+            mimetype: part.mimetype,
+          };
+        } else {
+          part.file.resume();
+        }
+      } else {
+        fields[part.fieldname] = part.value;
+      }
+    }
+
+    const normalizedEmail = normalizeEmail(fields.email);
+    const { name, company = "", phone = "" } = fields;
+
+    if (!name || !normalizedEmail) {
+      throw fastify.httpErrors.badRequest("name and email are required");
+    }
+
+    if (!agreementFile) {
+      throw fastify.httpErrors.badRequest("signed agreement document is required");
+    }
+
+    await assertEmailAvailable(normalizedEmail, fastify);
+
+    const agreementDocument = await uploadAgreementDocument(fastify, agreementFile);
+    const setupToken = createSecureToken();
+    const client = await Client.create({
+      name,
+      email: normalizedEmail,
+      company,
+      phone,
+      agreementDocument,
+      passwordSetTokenHash: await hashSecret(setupToken),
+      passwordSetTokenExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      onboardedAt: new Date(),
+      status: "invited",
+      ownerAdmin: admin._id,
+    });
+
+    await sendClientPasswordSetup(fastify, client, setupToken);
+
+    reply.code(201);
+    return {
+      id: client.id,
+      email: client.email,
+      status: client.status,
+      message: "Client onboarded and password setup mail sent",
+    };
+  });
+
+  fastify.get("/admin/clients", async (request) => {
+    const admin = await requireAdmin(request, fastify);
+
+    const clients = await Client.find({ ownerAdmin: admin._id })
+      .sort({ createdAt: -1 })
+      .select("name email company phone status agreementDocument onboardedAt passwordSetAt createdAt");
+    return {
+      clients,
+    };
+  });
+
+  fastify.post("/admin/projects", async (request, reply) => {
+    const admin = await requireAdmin(request, fastify);
+    const { name, clientEmail = "", status = "planned", description = "", planning = [] } = request.body || {};
+    const normalizedClientEmail = normalizeEmail(clientEmail);
+
+    if (!name) {
+      throw fastify.httpErrors.badRequest("project name is required");
+    }
+
+    if (normalizedClientEmail) {
+      const client = await Client.findOne({ email: normalizedClientEmail, ownerAdmin: admin._id });
+      if (!client) {
+        throw fastify.httpErrors.badRequest("Client must belong to your admin workspace");
+      }
+    }
+
+    const normalizedPlanning = normalizePlanning(planning);
+
+    const project = await Project.create({
+      name,
+      clientEmail: normalizedClientEmail,
+      status,
+      description,
+      planning: normalizedPlanning,
+      ownerAdmin: admin._id,
+    });
+
+    reply.code(201);
+    return {
+      project,
+      message: "Project added",
+    };
+  });
+
+  fastify.get("/admin/projects", async (request) => {
+    const admin = await requireAdmin(request, fastify);
+
+    const projects = await Project.find({ ownerAdmin: admin._id })
+      .sort({ createdAt: -1 })
+      .select("name clientEmail status description planning members createdAt")
+      .populate({
+        path: "members",
+        select: "name email status",
+        match: { ownerAdmin: admin._id },
+      });
+    return {
+      projects,
+    };
+  });
+
+  fastify.get("/admin/requests", async (request) => {
+    const admin = await requireAdmin(request, fastify);
+
+    const requests = await Request.find({ ownerAdmin: admin._id })
+      .sort({ createdAt: -1 })
+      .populate("project", "name clientEmail status")
+      .populate("createdBy", "name email");
+
+    return {
+      requests,
+    };
+  });
+
+  fastify.get("/admin/issues", async (request) => {
+    const admin = await requireAdmin(request, fastify);
+
+    const issues = await Issue.find({ ownerAdmin: admin._id })
+      .sort({ createdAt: -1 })
+      .populate("project", "name clientEmail status")
+      .populate("client", "name email company");
+
+    return {
+      issues,
+    };
+  });
+
+  fastify.get("/admin/projects/:projectId", async (request) => {
+    const admin = await requireAdmin(request, fastify);
+
+    const project = await Project.findOne({ _id: request.params.projectId, ownerAdmin: admin._id })
+      .populate({
+        path: "members",
+        select: "name email status",
+        match: { ownerAdmin: admin._id },
+      })
+      .select("name clientEmail status description planning members createdAt");
+
+    if (!project) {
+      throw fastify.httpErrors.notFound("Project not found");
+    }
+
+    const tickets = await Ticket.find({ project: project.id, ownerAdmin: admin._id })
+      .sort({ createdAt: -1 })
+      .populate("createdBy", "name email")
+      .populate("createdByAdmin", "name email")
+      .populate("assignedTo", "name email");
+
+    return {
+      project,
+      tickets,
+    };
+  });
+
+  fastify.put("/admin/projects/:projectId/members", async (request) => {
+    const admin = await requireAdmin(request, fastify);
+    const { memberIds = [] } = request.body || {};
+    const project = await Project.findOne({ _id: request.params.projectId, ownerAdmin: admin._id });
+
+    if (!project) {
+      throw fastify.httpErrors.notFound("Project not found");
+    }
+
+    const activeMembers = await Member.find({
+      _id: { $in: memberIds },
+      status: "active",
+      ownerAdmin: admin._id,
+    }).select("_id");
+
+    project.members = activeMembers.map((member) => member._id);
+    await project.save();
+    await project.populate("members", "name email status");
+
+    return {
+      project,
+      message: "Project members updated",
+    };
+  });
+
+  fastify.put("/admin/projects/:projectId/phases/:phaseIndex/sprints/:sprintIndex/status", async (request) => {
+    const admin = await requireAdmin(request, fastify);
+    const { status } = request.body || {};
+    const project = await Project.findOne({ _id: request.params.projectId, ownerAdmin: admin._id });
+
+    if (!project) {
+      throw fastify.httpErrors.notFound("Project not found");
+    }
+
+    const phaseIndex = Number(request.params.phaseIndex);
+    const sprintIndex = Number(request.params.sprintIndex);
+    const phase = project.planning?.[phaseIndex];
+    const sprint = phase?.sprints?.[sprintIndex];
+
+    if (!phase || !sprint) {
+      throw fastify.httpErrors.notFound("Sprint not found");
+    }
+
+    sprint.status = normalizeSprintStatus(status);
+    phase.status = derivePhaseStatus(phase.sprints);
+    await project.save();
+
+    return {
+      project,
+      message: "Sprint status updated",
+    };
+  });
+
+  fastify.post("/admin/projects/:projectId/tickets", async (request, reply) => {
+    const admin = await requireAdmin(request, fastify);
+    const { title, description = "", assignedTo, deadline, sprintSelection, status = "open", urls = [] } = request.body || {};
+
+    if (!title || !assignedTo || !deadline || !sprintSelection) {
+      throw fastify.httpErrors.badRequest("title, assignedTo, deadline, and sprintSelection are required");
+    }
+
+    if (!["open", "in_progress", "resolved"].includes(status)) {
+      throw fastify.httpErrors.badRequest("status must be open, in_progress, or resolved");
+    }
+
+    const project = await Project.findOne({ _id: request.params.projectId, ownerAdmin: admin._id }).populate("members", "_id name email");
+    if (!project) {
+      throw fastify.httpErrors.notFound("Project not found");
+    }
+
+    const isAssignedMemberInProject = project.members.some((member) => member._id.toString() === assignedTo);
+    if (!isAssignedMemberInProject) {
+      throw fastify.httpErrors.badRequest("Ticket can only be assigned to a member in this project");
+    }
+
+    const normalizedUrls = Array.isArray(urls) ? urls.filter(Boolean) : [];
+    const sprint = resolveSprintSelection(project, sprintSelection, fastify);
+
+    const ticket = await Ticket.create({
+      project: project._id,
+      title,
+      description,
+      urls: normalizedUrls,
+      deadline: new Date(deadline),
+      createdByAdmin: admin._id,
+      assignedTo,
+      sprint,
+      status,
+      ownerAdmin: admin._id,
+    });
+
+    await ticket.populate("createdByAdmin", "name email");
+    await ticket.populate("assignedTo", "name email");
+    await ticket.populate("project", "name");
+
+    reply.code(201);
+    return {
+      ticket,
+      message: "Ticket raised and assigned to project member",
+    };
+  });
+
+  fastify.post("/admin/members", async (request, reply) => {
+    const admin = await requireAdmin(request, fastify);
+    const { name } = request.body || {};
+    const normalizedEmail = normalizeEmail(request.body?.email);
+
+    if (!name || !normalizedEmail) {
+      throw fastify.httpErrors.badRequest("name and email are required");
+    }
+
+    await assertEmailAvailable(normalizedEmail, fastify);
+
+    const setupToken = createSecureToken();
+    const member = await Member.create({
+      name,
+      email: normalizedEmail,
+      passwordSetTokenHash: await hashSecret(setupToken),
+      passwordSetTokenExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      invitedAt: new Date(),
+      status: "invited",
+      ownerAdmin: admin._id,
+    });
+
+    await sendMemberPasswordSetup(fastify, member, setupToken);
+
+    reply.code(201);
+    return {
+      id: member.id,
+      email: member.email,
+      status: member.status,
+      message: "Member added and password setup mail sent",
+    };
+  });
+
+  fastify.get("/admin/members", async (request) => {
+    const admin = await requireAdmin(request, fastify);
+
+    const members = await Member.find({ ownerAdmin: admin._id })
+      .sort({ createdAt: -1 })
+      .select("name email status invitedAt passwordSetAt createdAt");
+    return {
+      members,
+    };
+  });
+}
+
+export default adminRoutes;

@@ -1,0 +1,85 @@
+services:
+  - type: web
+    name: orbitdesk-server
+    runtime: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 20.19.0
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 10000
+      - key: CLIENT_URL
+        value: https://orbitdesk-client.onrender.com
+      - key: ADMIN_URL
+        value: https://orbitdesk-admin.onrender.com
+      - key: ALLOWED_ORIGINS
+        value: https://orbitdesk-client.onrender.com,https://orbitdesk-admin.onrender.com
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: ADMIN_API_SECRET
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: CLOUDINARY_AGREEMENT_FOLDER
+        value: orbitdesk/agreements
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: 587
+      - key: SMTP_SECURE
+        value: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        value: OrbitDesk <no-reply@orbitdesk.local>
+
+  - type: web
+    name: orbitdesk-client
+    runtime: static
+    rootDir: client
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    pullRequestPreviewsEnabled: false
+    envVars:
+      - key: NODE_VERSION
+        value: 20.19.0
+      - key: VITE_API_URL
+        value: https://orbitdesk-server.onrender.com
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+  - type: web
+    name: orbitdesk-admin
+    runtime: static
+    rootDir: admin_interface
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    pullRequestPreviewsEnabled: false
+    envVars:
+      - key: NODE_VERSION
+        value: 20.19.0
+      - key: VITE_API_URL
+        value: https://orbitdesk-server.onrender.com
+      - key: VITE_ADMIN_API_SECRET
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
