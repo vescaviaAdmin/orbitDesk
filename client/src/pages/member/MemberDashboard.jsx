@@ -485,10 +485,10 @@ function MemberDashboard() {
           </header>
 
           <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <MetricCard label="Assigned projects" value={projects.length} note="Project workspaces you can access" />
-            <MetricCard label="Open tickets" value={tickets.filter((ticket) => ticket.status === "open").length} note="Awaiting active execution" />
-            <MetricCard label="In progress" value={tickets.filter((ticket) => ticket.status === "in_progress").length} note="Work currently underway" />
-            <MetricCard label="Requests" value={requestsFeed.length} note="Admin-facing requests across projects" />
+            <MetricCard label="Assigned projects" value={projects.length} note="Project workspaces you can access" onClick={() => routeTo("/member/projects")} />
+            <MetricCard label="Open tickets" value={tickets.filter((ticket) => ticket.status === "open").length} note="Awaiting active execution" onClick={() => routeTo("/member/tickets")} />
+            <MetricCard label="In progress" value={tickets.filter((ticket) => ticket.status === "in_progress").length} note="Work currently underway" onClick={() => routeTo("/member/tickets")} />
+            <MetricCard label="Requests" value={requestsFeed.length} note="Admin-facing requests across projects" onClick={() => routeTo("/member/requests")} />
           </section>
 
           {isDashboardPath ? <DashboardHome documentsFeed={documentsFeed} requestsFeed={requestsFeed} summary={activeProjectSummary} tickets={tickets} /> : null}
@@ -541,13 +541,14 @@ function SidebarLink({ active, icon, label, onClick }) {
   );
 }
 
-function MetricCard({ label, value, note }) {
+function MetricCard({ label, value, note, onClick }) {
+  const Tag = onClick ? "button" : "article";
   return (
-    <article className="metric-card">
+    <Tag className={`metric-card w-full text-left ${onClick ? "cursor-pointer hover:border-violet-200 hover:shadow-md" : ""}`} onClick={onClick} type={onClick ? "button" : undefined}>
       <p className="muted-text text-sm font-semibold">{label}</p>
       <strong className="metric-value">{value}</strong>
       <p className="muted-text mt-2 text-sm">{note}</p>
-    </article>
+    </Tag>
   );
 }
 
@@ -579,10 +580,10 @@ function DashboardHome({ documentsFeed, requestsFeed, summary, tickets }) {
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
-            <InfoStat label="Current phase" value={summary?.currentPhase?.name || "Not set"} />
-            <InfoStat label="Current sprint" value={summary?.currentSprint?.name || "Not set"} />
-            <InfoStat label="Expected delivery" value={summary?.expected || "Not set"} />
-            <InfoStat label="Planned items" value={summary?.planned ?? 0} />
+            <InfoStat label="Current phase" value={summary?.currentPhase?.name || "Not set"} onClick={summary?.source?._id ? () => routeTo(`/member/projects/${summary.source._id}`) : undefined} />
+            <InfoStat label="Current sprint" value={summary?.currentSprint?.name || "Not set"} onClick={summary?.source?._id ? () => routeTo(`/member/projects/${summary.source._id}`) : undefined} />
+            <InfoStat label="Expected delivery" value={summary?.expected || "Not set"} onClick={summary?.source?._id ? () => routeTo(`/member/projects/${summary.source._id}`) : undefined} />
+            <InfoStat label="Planned items" value={summary?.planned ?? 0} onClick={summary?.source?._id ? () => routeTo(`/member/projects/${summary.source._id}`) : undefined} />
           </div>
         </div>
       </section>
@@ -632,7 +633,7 @@ function DashboardHome({ documentsFeed, requestsFeed, summary, tickets }) {
           </div>
           <div className="mt-5 space-y-3">
             {requestsFeed.slice(0, 4).map((requestItem) => (
-              <article className="surface-muted p-4" key={requestItem._id}>
+              <button className="surface-muted w-full p-4 text-left hover:border-violet-200" key={requestItem._id} onClick={() => routeTo("/member/requests")} type="button">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="font-semibold text-slate-900">{requestItem.title}</p>
@@ -641,7 +642,7 @@ function DashboardHome({ documentsFeed, requestsFeed, summary, tickets }) {
                   <span className="badge badge-info">{normalizeStatus(requestItem.status)}</span>
                 </div>
                 <p className="muted-text mt-3 text-sm">{requestItem.description || "No request details provided."}</p>
-              </article>
+              </button>
             ))}
             {!requestsFeed.length ? <EmptyCard copy="No requests raised yet." /> : null}
           </div>
@@ -657,13 +658,11 @@ function DashboardHome({ documentsFeed, requestsFeed, summary, tickets }) {
           </div>
           <div className="mt-5 space-y-3">
             {documentsFeed.slice(0, 4).map((item) => (
-              <article className="surface-muted p-4" key={`${item.project._id}-${item.document.url}`}>
+              <button className="surface-muted w-full p-4 text-left hover:border-violet-200" key={`${item.project._id}-${item.document.url}`} onClick={() => routeTo("/member/documents")} type="button">
                 <p className="font-semibold text-slate-900">{item.document.originalName || "Agreement document"}</p>
                 <p className="muted-text mt-1 text-sm">{item.project.name}</p>
-                <a className="secondary-button mt-4" href={item.document.url} rel="noreferrer" target="_blank">
-                  Open document
-                </a>
-              </article>
+                <span className="secondary-button mt-4">Open document</span>
+              </button>
             ))}
             {!documentsFeed.length ? <EmptyCard copy="No documents attached to your projects yet." /> : null}
           </div>
@@ -1127,12 +1126,13 @@ function CreateRequestPage({ loading, onBack, onRequestChange, onSubmit, project
   );
 }
 
-function InfoStat({ label, value }) {
+function InfoStat({ label, value, onClick }) {
+  const Tag = onClick ? "button" : "div";
   return (
-    <div className="surface-card p-4">
+    <Tag className={`surface-card w-full p-4 text-left ${onClick ? "cursor-pointer hover:border-violet-200 hover:shadow-md" : ""}`} onClick={onClick} type={onClick ? "button" : undefined}>
       <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
       <p className="mt-2 font-semibold text-slate-900">{value}</p>
-    </div>
+    </Tag>
   );
 }
 

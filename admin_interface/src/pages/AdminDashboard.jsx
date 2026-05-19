@@ -862,10 +862,10 @@ function DashboardHome({
   return (
     <div className="mt-6 space-y-6">
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Total projects" value={totalProjects} note={`${activeProjectsCount} active right now`} />
-        <MetricCard label="Open issues" value={totalIssues} note="Client-visible issue queue" />
-        <MetricCard label="Completed tasks" value={projects.filter((project) => project.status === "completed").length} note="Projects fully delivered" />
-        <MetricCard label="Overdue tasks" value={overdueTasks} note="Needs attention today" />
+        <MetricCard label="Total projects" value={totalProjects} note={`${activeProjectsCount} active right now`} onClick={() => routeTo("/projects")} />
+        <MetricCard label="Open issues" value={totalIssues} note="Client-visible issue queue" onClick={() => routeTo("/issues")} />
+        <MetricCard label="Completed tasks" value={projects.filter((project) => project.status === "completed").length} note="Projects fully delivered" onClick={() => routeTo("/projects")} />
+        <MetricCard label="Overdue tasks" value={overdueTasks} note="Needs attention today" onClick={() => routeTo("/issues")} />
       </section>
 
       <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
@@ -881,7 +881,7 @@ function DashboardHome({
           </div>
           <div className="mt-6 grid gap-4 lg:grid-cols-2">
             {projects.slice(0, 4).map((project) => (
-              <article className="surface-muted p-5" key={project._id}>
+              <button className="surface-muted w-full p-5 text-left hover:border-violet-200 hover:shadow-md" key={project._id} onClick={() => routeTo(`/projects/${project._id}`)} type="button">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h3 className="text-lg font-semibold text-slate-900">{project.name}</h3>
@@ -897,7 +897,7 @@ function DashboardHome({
                 <div className="progress-track mt-2">
                   <div className="progress-fill" style={{ width: `${percentComplete(project)}%` }} />
                 </div>
-              </article>
+              </button>
             ))}
           </div>
         </section>
@@ -907,10 +907,10 @@ function DashboardHome({
             <p className="eyebrow">Teams</p>
             <h2 className="section-title mt-3 text-xl">Workspace pulse</h2>
             <div className="mt-5 grid gap-3">
-              <CompactStat label="Clients" value={`${activeClients} active / ${invitedClients} invited`} />
-              <CompactStat label="Members" value={`${activeMembers} active / ${invitedMembers} invited`} />
-              <CompactStat label="Requests" value={`${totalRequests} open collaboration items`} />
-              <CompactStat label="Issues" value={`${issues.filter((issue) => issue.status === "open").length} open issue reports`} />
+              <CompactStat label="Clients" value={`${activeClients} active / ${invitedClients} invited`} onClick={() => routeTo("/clients")} />
+              <CompactStat label="Members" value={`${activeMembers} active / ${invitedMembers} invited`} onClick={() => routeTo("/members")} />
+              <CompactStat label="Requests" value={`${totalRequests} open collaboration items`} onClick={() => routeTo("/requests")} />
+              <CompactStat label="Issues" value={`${issues.filter((issue) => issue.status === "open").length} open issue reports`} onClick={() => routeTo("/issues")} />
             </div>
           </article>
 
@@ -919,7 +919,7 @@ function DashboardHome({
             <h2 className="section-title mt-3 text-xl">Priority items</h2>
             <div className="mt-5 space-y-3">
               {recentUpdates.map((item) => (
-                <div className="surface-muted p-4" key={item._id}>
+                <button className="surface-muted w-full p-4 text-left hover:border-violet-200" key={item._id} onClick={() => routeTo(item.createdBy ? "/requests" : "/issues")} type="button">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="font-semibold text-slate-900">{item.title}</p>
@@ -927,7 +927,7 @@ function DashboardHome({
                     </div>
                     <span className="badge badge-info">{normalizeStatus(item.status || "open")}</span>
                   </div>
-                </div>
+                </button>
               ))}
               {!recentUpdates.length ? <EmptyState copy="No recent updates yet." /> : null}
             </div>
@@ -936,9 +936,9 @@ function DashboardHome({
       </div>
 
       <div className="grid gap-6 xl:grid-cols-3">
-        <QuickTable title="Client visibility" rows={clients.slice(0, 5)} columns={[["Name", "name"], ["Company", "company"], ["Status", "status"]]} />
-        <QuickTable title="Team activity" rows={members.slice(0, 5)} columns={[["Member", "name"], ["Email", "email"], ["Status", "status"]]} />
-        <QuickTable title="Open requests" rows={requests.slice(0, 5)} columns={[["Title", "title"], ["Project", "project.name"], ["Status", "status"]]} />
+        <QuickTable title="Client visibility" rows={clients.slice(0, 5)} columns={[["Name", "name"], ["Company", "company"], ["Status", "status"]]} onClick={() => routeTo("/clients")} />
+        <QuickTable title="Team activity" rows={members.slice(0, 5)} columns={[["Member", "name"], ["Email", "email"], ["Status", "status"]]} onClick={() => routeTo("/members")} />
+        <QuickTable title="Open requests" rows={requests.slice(0, 5)} columns={[["Title", "title"], ["Project", "project.name"], ["Status", "status"]]} onClick={() => routeTo("/requests")} />
       </div>
     </div>
   );
@@ -1771,32 +1771,34 @@ function FormPage({ children, description, loading, onBack, onSubmit, submitLabe
   );
 }
 
-function MetricCard({ label, note, value }) {
+function MetricCard({ label, note, onClick, value }) {
+  const Tag = onClick ? "button" : "article";
   return (
-    <article className="metric-card">
+    <Tag className={`metric-card w-full text-left ${onClick ? "cursor-pointer hover:border-violet-200 hover:shadow-md" : ""}`} onClick={onClick} type={onClick ? "button" : undefined}>
       <p className="muted-text text-sm font-semibold">{label}</p>
       <strong className="metric-value">{value}</strong>
       <p className="muted-text mt-2 text-sm">{note}</p>
-    </article>
+    </Tag>
   );
 }
 
-function CompactStat({ label, value }) {
+function CompactStat({ label, onClick, value }) {
+  const Tag = onClick ? "button" : "div";
   return (
-    <div className="surface-card p-4">
+    <Tag className={`surface-card w-full p-4 text-left ${onClick ? "cursor-pointer hover:border-violet-200 hover:shadow-md" : ""}`} onClick={onClick} type={onClick ? "button" : undefined}>
       <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
       <p className="mt-2 text-sm font-semibold text-slate-900">{value}</p>
-    </div>
+    </Tag>
   );
 }
 
-function QuickTable({ columns, rows, title }) {
+function QuickTable({ columns, onClick, rows, title }) {
   function resolveValue(row, key) {
     return key.split(".").reduce((acc, part) => acc?.[part], row) || "-";
   }
 
   return (
-    <section className="surface-card p-6">
+    <section className={`surface-card p-6 ${onClick ? "cursor-pointer hover:border-violet-200 hover:shadow-md" : ""}`} onClick={onClick}>
       <p className="eyebrow">{title}</p>
       <h2 className="section-title mt-3 text-xl">{title}</h2>
       <div className="table-shell mt-5">

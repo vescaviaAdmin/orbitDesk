@@ -194,10 +194,10 @@ function ClientDashboard() {
 
   const activeProject = projectSummaries[activeProjectIndex] || null;
   const overviewCards = [
-    { label: "Assigned projects", value: projectSummaries.length, note: "Delivery workspaces linked to your account" },
-    { label: "Open issues", value: countStatus(issues, ["open"]), note: "Needs admin review or acknowledgment" },
-    { label: "Resolved issues", value: countStatus(issues, ["resolved", "done"]), note: "Closed feedback and fixes" },
-    { label: "In progress", value: countStatus(issues, ["in_progress"]), note: "Currently being worked on" },
+    { label: "Assigned projects", value: projectSummaries.length, note: "Delivery workspaces linked to your account", view: "projects" },
+    { label: "Open issues", value: countStatus(issues, ["open"]), note: "Needs admin review or acknowledgment", view: "tasks" },
+    { label: "Resolved issues", value: countStatus(issues, ["resolved", "done"]), note: "Closed feedback and fixes", view: "feedback" },
+    { label: "In progress", value: countStatus(issues, ["in_progress"]), note: "Currently being worked on", view: "tasks" },
   ];
 
   const priorityIssues = issues.slice(0, 5);
@@ -278,20 +278,20 @@ function ClientDashboard() {
 
           <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             {overviewCards.map((item) => (
-              <article className="metric-card" key={item.label}>
+              <button className="metric-card w-full cursor-pointer text-left hover:border-violet-200 hover:shadow-md" key={item.label} onClick={() => setActiveView(item.view)} type="button">
                 <p className="muted-text text-sm font-semibold">{item.label}</p>
                 <strong className="metric-value">{item.value}</strong>
                 <p className="muted-text mt-2 text-sm">{item.note}</p>
-              </article>
+              </button>
             ))}
           </section>
 
           {activeView === "dashboard" ? (
             <div className="mt-6 grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-              <section className="surface-card p-6">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                  <div>
-                    <p className="eyebrow">Active Project</p>
+            <section className="surface-card p-6">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <p className="eyebrow">Active Project</p>
                     <h2 className="section-title mt-3">{activeProject?.project?.name || "No project assigned"}</h2>
                     <p className="muted-text mt-3 text-sm leading-6">
                       {activeProject?.project?.description || "Project summary will appear here when a workspace is assigned."}
@@ -320,10 +320,10 @@ function ClientDashboard() {
                 {activeProject ? (
                   <>
                     <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                      <ProjectStat label="Current phase" value={activeProject.currentPhase?.name || "Not set"} />
-                      <ProjectStat label="Current sprint" value={activeProject.currentSprint?.name || "Not set"} />
-                      <ProjectStat label="Expected delivery" value={activeProject.expectedTime} />
-                      <ProjectStat label="Project progress" value={`${getProjectProgress(activeProject)}%`} />
+                      <ProjectStat label="Current phase" value={activeProject.currentPhase?.name || "Not set"} onClick={() => setActiveView("progress")} />
+                      <ProjectStat label="Current sprint" value={activeProject.currentSprint?.name || "Not set"} onClick={() => setActiveView("progress")} />
+                      <ProjectStat label="Expected delivery" value={activeProject.expectedTime} onClick={() => setActiveView("progress")} />
+                      <ProjectStat label="Project progress" value={`${getProjectProgress(activeProject)}%`} onClick={() => setActiveView("progress")} />
                     </div>
 
                     <div className="mt-5">
@@ -363,7 +363,7 @@ function ClientDashboard() {
                   <div className="mt-5 space-y-3">
                     {priorityIssues.length ? (
                       priorityIssues.map((issue) => (
-                        <div className="surface-muted p-4" key={issue._id}>
+                        <button className="surface-muted w-full p-4 text-left hover:border-violet-200" key={issue._id} onClick={() => setActiveView("tasks")} type="button">
                           <div className="flex items-start justify-between gap-3">
                             <div>
                               <p className="font-semibold text-slate-900">{issue.title}</p>
@@ -372,7 +372,7 @@ function ClientDashboard() {
                             <IssueStatusBadge status={issue.status} />
                           </div>
                           <p className="muted-text mt-3 text-sm">{issue.description || "No extra details shared."}</p>
-                        </div>
+                        </button>
                       ))
                     ) : (
                       <EmptyCard copy="No issues yet. Create your first issue to start tracking work." />
@@ -410,18 +410,23 @@ function ClientDashboard() {
 
               <div className="mt-6 grid gap-4 lg:grid-cols-2">
                 {projectSummaries.map((item, index) => (
-                  <article
+                  <button
                     className={`surface-card border-2 p-5 ${activeProjectIndex === index ? "border-violet-300" : "border-transparent"}`}
                     key={item.project._id}
+                    onClick={() => {
+                      setActiveProjectIndex(index);
+                      setActiveView("dashboard");
+                    }}
+                    type="button"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <h3 className="text-lg font-semibold text-slate-900">{item.project.name}</h3>
                         <p className="muted-text mt-2 text-sm">{item.project.description || "No project summary available."}</p>
                       </div>
-                      <button className="secondary-button" onClick={() => setActiveProjectIndex(index)} type="button">
+                      <span className="secondary-button">
                         Open
-                      </button>
+                      </span>
                     </div>
                     <div className="mt-5 grid gap-3 sm:grid-cols-2">
                       <ProjectStat label="Current phase" value={item.currentPhase?.name || "Not set"} />
@@ -429,7 +434,7 @@ function ClientDashboard() {
                       <ProjectStat label="Expected completion" value={item.expectedTime} />
                       <ProjectStat label="Phases / Sprints" value={`${item.totalPhases} / ${item.totalSprints}`} />
                     </div>
-                  </article>
+                  </button>
                 ))}
                 {!projectSummaries.length ? <EmptyCard copy={loading ? "Loading projects..." : "No assigned projects yet."} /> : null}
               </div>
@@ -603,12 +608,13 @@ function ClientDashboard() {
   );
 }
 
-function ProjectStat({ label, value }) {
+function ProjectStat({ label, value, onClick }) {
+  const Tag = onClick ? "button" : "div";
   return (
-    <div className="surface-muted p-4">
+    <Tag className={`surface-muted w-full p-4 text-left ${onClick ? "cursor-pointer hover:border-violet-200 hover:shadow-md" : ""}`} onClick={onClick} type={onClick ? "button" : undefined}>
       <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
       <p className="mt-2 font-semibold text-slate-900">{value}</p>
-    </div>
+    </Tag>
   );
 }
 
