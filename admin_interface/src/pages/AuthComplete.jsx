@@ -26,8 +26,8 @@ function AuthComplete() {
   }, []);
 
   return (
-    <main className="grid min-h-screen place-items-center bg-[#f7f8fb] px-5 text-[#161c24]">
-      <div className="rounded-2xl border border-[#d7dee8] bg-white px-6 py-5 text-sm text-[#5b6677] shadow-sm">
+    <main className="app-shell grid place-items-center">
+      <div className="neo-panel px-6 py-5 text-sm text-[color:var(--text-muted)]">
         Signing you into the admin workspace...
       </div>
     </main>
