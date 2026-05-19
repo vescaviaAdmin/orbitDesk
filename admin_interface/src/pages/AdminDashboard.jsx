@@ -13,8 +13,8 @@ import {
   listMembers,
   listProjects,
   listRequests,
-  updateSprintStatus,
   updateProjectMembers,
+  updateSprintStatus,
 } from "../api/admin";
 
 const emptyForms = {
@@ -77,6 +77,46 @@ function formatDate(value) {
   });
 }
 
+function normalizeStatus(status) {
+  return (status || "planned").replaceAll("_", " ");
+}
+
+function getInitials(value) {
+  return (value || "OD")
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+}
+
+function getPriorityFromTicket(ticket) {
+  const normalized = (ticket.status || "").toLowerCase();
+  if (normalized === "blocked") {
+    return "High";
+  }
+  if (normalized === "in_progress") {
+    return "Medium";
+  }
+  return "Normal";
+}
+
+function percentComplete(project) {
+  const phases = project?.planning || [];
+  if (!phases.length) {
+    return project?.status === "active" ? 25 : 0;
+  }
+
+  const completedSprints = phases.reduce(
+    (total, phase) =>
+      total +
+      (phase.sprints || []).filter((sprint) => ["completed", "done", "closed"].includes((sprint.status || "").toLowerCase())).length,
+    0,
+  );
+  const totalSprints = phases.reduce((total, phase) => total + (phase.sprints?.length || 0), 0);
+  return totalSprints ? Math.round((completedSprints / totalSprints) * 100) : 0;
+}
+
 function AdminDashboard() {
   const [path, setPath] = useState(window.location.pathname);
   const [adminSession, setAdminSession] = useState(getAdminSession());
@@ -107,6 +147,11 @@ function AdminDashboard() {
   const isProjectsPath = path === "/projects";
   const isRequestsPath = path === "/requests";
   const isIssuesPath = path === "/issues";
+  const isBoardsPath = path === "/boards";
+  const isSprintsPath = path === "/sprints";
+  const isTeamsPath = path === "/teams";
+  const isReportsPath = path === "/reports";
+  const isSettingsPath = path === "/settings";
   const isProjectCreatePath = path === "/projects/new";
   const projectIdFromPath = !isProjectCreatePath ? path.match(/^\/projects\/([^/]+)$/)?.[1] || "" : "";
 
@@ -586,327 +631,211 @@ function AdminDashboard() {
     return null;
   }
 
-  return (
-    <main className="min-h-screen bg-[#f6f8fb] px-5 py-8 text-[#151b20]">
-      <section className="mx-auto max-w-7xl">
-        <AdminHeader
-          activePath={path}
-          counts={{ clients: clients.length, members: members.length, projects: projects.length, requests: requests.length, issues: issues.length }}
-          currentAdmin={currentAdmin}
-          onLogout={logoutAdmin}
-        />
-        {status ? <p className="mt-5 rounded-md bg-[#e8f5eb] px-3 py-2 text-sm text-[#1b6b3a]">{status}</p> : null}
-        {error ? <p className="mt-5 rounded-md bg-[#fde8e3] px-3 py-2 text-sm text-[#9f2f1f]">{error}</p> : null}
-
-        {path === "/clients/onboard" ? (
-          <ClientOnboardingPage
-            form={forms.client}
-            loading={loading}
-            onBack={() => routeTo("/clients")}
-            onChange={(event) => updateForm("client", event)}
-            onSubmit={() => handleCreate("client", addClient, "/clients")}
-          />
-        ) : null}
-
-        {path === "/members/new" ? (
-          <MemberCreatePage
-            form={forms.member}
-            loading={loading}
-            onBack={() => routeTo("/members")}
-            onChange={(event) => updateForm("member", event)}
-            onSubmit={() => handleCreate("member", addMember, "/members")}
-          />
-        ) : null}
-
-        {isProjectCreatePath ? (
-          <ProjectCreatePage
-            form={forms.project}
-            loading={loading}
-            onBack={() => routeTo("/projects")}
-            onChange={(event) => updateForm("project", event)}
-            onAddPhase={addProjectPlanningPhase}
-            onAddSprint={addProjectPlanningSprint}
-            onAddTicket={addProjectPlanningTicket}
-            onPhaseChange={updateProjectPlanningPhase}
-            onRemovePhase={removeProjectPlanningPhase}
-            onRemoveSprint={removeProjectPlanningSprint}
-            onRemoveTicket={removeProjectPlanningTicket}
-            onSprintChange={updateProjectPlanningSprint}
-            onSubmit={() => handleCreate("project", addProject, "/projects")}
-            onTicketChange={updateProjectPlanningTicket}
-          />
-        ) : null}
-
-        {projectIdFromPath ? (
-          <ProjectDetailPage
-            adminTicketForm={forms.projectTicket}
-            loading={loading}
-            memberSearch={memberSearch}
-            onBack={() => routeTo("/projects")}
-            onCreateTicket={createAdminProjectTicket}
-            onSaveMembers={saveProjectMembers}
-            onSearchMembers={setMemberSearch}
-            onSprintStatusChange={handleSprintStatusChange}
-            onTicketFormChange={updateProjectTicketForm}
-            onToggleMember={toggleProjectMember}
-            project={selectedProject}
-            searchedMembers={searchedProjectMembers}
-            selectedMemberIds={selectedMemberIds}
-            selectedMembers={selectedMembers}
-            tickets={projectTickets}
-          />
-        ) : null}
-
-        {isDashboardPath ? (
-          <DashboardHome
-            activeClients={activeClients.length}
-            activeMembers={activeMembers.length}
-            activeProjectsCount={activeProjectsCount}
-            clients={filteredClients}
-            clientSearch={clientSearch}
-            invitedClients={invitedClients.length}
-            invitedMembers={invitedMembers.length}
-            members={filteredMembers}
-            memberSearch={memberDirectorySearch}
-            onClientSearch={setClientSearch}
-            onMemberSearch={setMemberDirectorySearch}
-            onProjectSearch={setProjectSearch}
-            projectSearch={projectSearch}
-            projects={filteredProjects}
-            requests={filteredRequests}
-            issues={filteredIssues}
-            totalClients={clients.length}
-            totalIssues={issues.length}
-            totalMembers={members.length}
-            totalProjects={projects.length}
-            totalRequests={requests.length}
-          />
-        ) : null}
-
-        {isClientsPath ? (
-          <ResourceDirectory
-            actionLabel="Onboard client"
-            countLabel={`${clients.length} total`}
-            emptyMessage="No clients found."
-            items={filteredClients}
-            onAction={() => routeTo("/clients/onboard")}
-            onSearch={setClientSearch}
-            searchPlaceholder="Search by name, email, company, or phone"
-            searchValue={clientSearch}
-            title="Clients"
-          >
-            {(client) => (
-              <article className="rounded-lg border border-[#edf0f4] p-4" key={client._id}>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="font-semibold">{client.name}</h3>
-                    <p className="text-sm text-[#5c6673]">{client.email}</p>
-                  </div>
-                  <StatusBadge status={client.status} />
-                </div>
-                <dl className="mt-4 grid gap-3 text-sm text-[#5c6673] sm:grid-cols-2">
-                  <MetaItem label="Company" value={client.company || "-"} />
-                  <MetaItem label="Phone" value={client.phone || "-"} />
-                  <MetaItem label="Onboarded" value={formatDate(client.onboardedAt)} />
-                  <MetaItem label="Password set" value={formatDate(client.passwordSetAt)} />
-                </dl>
-                {client.agreementDocument?.url ? (
-                  <a className="mt-4 inline-flex rounded-md bg-[#2f6f5e] px-3 py-2 text-sm font-semibold text-white" href={client.agreementDocument.url} rel="noreferrer" target="_blank">
-                    View agreement
-                  </a>
-                ) : null}
-              </article>
-            )}
-          </ResourceDirectory>
-        ) : null}
-
-        {isMembersPath ? (
-          <ResourceDirectory
-            actionLabel="Add member"
-            countLabel={`${members.length} total`}
-            emptyMessage="No members found."
-            items={filteredMembers}
-            onAction={() => routeTo("/members/new")}
-            onSearch={setMemberDirectorySearch}
-            searchPlaceholder="Search by name, email, or status"
-            searchValue={memberDirectorySearch}
-            title="Members"
-          >
-            {(member) => (
-              <article className="rounded-lg border border-[#edf0f4] p-4" key={member._id}>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="font-semibold">{member.name}</h3>
-                    <p className="text-sm text-[#5c6673]">{member.email}</p>
-                  </div>
-                  <StatusBadge status={member.status} />
-                </div>
-                <dl className="mt-4 grid gap-3 text-sm text-[#5c6673] sm:grid-cols-2">
-                  <MetaItem label="Invited" value={formatDate(member.invitedAt)} />
-                  <MetaItem label="Password set" value={formatDate(member.passwordSetAt)} />
-                </dl>
-              </article>
-            )}
-          </ResourceDirectory>
-        ) : null}
-
-        {isProjectsPath ? (
-          <ResourceDirectory
-            actionLabel="Add project"
-            countLabel={`${projects.length} total`}
-            emptyMessage="No projects found."
-            items={filteredProjects}
-            onAction={() => routeTo("/projects/new")}
-            onSearch={setProjectSearch}
-            searchPlaceholder="Search by project, client email, status, or description"
-            searchValue={projectSearch}
-            title="Projects"
-          >
-            {(project) => (
-              <button className="rounded-lg border border-[#edf0f4] p-4 text-left transition hover:border-[#6b4f1d]" key={project._id} onClick={() => routeTo(`/projects/${project._id}`)} type="button">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="font-semibold">{project.name}</h3>
-                    <p className="mt-1 text-sm text-[#5c6673]">{project.clientEmail || "No client assigned"}</p>
-                    <p className="mt-1 text-sm text-[#5c6673]">{project.description || "No project description"}</p>
-                    <p className="mt-3 text-xs font-semibold text-[#6b4f1d]">
-                      {project.members?.length || 0} members assigned, {project.planning?.length || 0} phases, {countPlannedTickets(project.planning)} planned tickets
-                    </p>
-                  </div>
-                  <StatusBadge status={project.status} />
-                </div>
-              </button>
-            )}
-          </ResourceDirectory>
-        ) : null}
-
-        {isRequestsPath ? (
-          <ResourceDirectory
-            countLabel={`${requests.length} total`}
-            emptyMessage="No requests found."
-            items={filteredRequests}
-            onSearch={setRequestSearch}
-            searchPlaceholder="Search by title, project, member, or status"
-            searchValue={requestSearch}
-            title="Requests"
-          >
-            {(requestItem) => (
-              <article className="rounded-lg border border-[#edf0f4] p-4" key={requestItem._id}>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="font-semibold">{requestItem.title}</h3>
-                    <p className="mt-1 text-sm text-[#5c6673]">{requestItem.project?.name || "Project"}</p>
-                  </div>
-                  <StatusBadge status={requestItem.status} />
-                </div>
-                <p className="mt-3 text-sm text-[#5c6673]">{requestItem.description || "No description"}</p>
-                <dl className="mt-4 grid gap-3 text-sm text-[#5c6673] sm:grid-cols-2">
-                  <MetaItem label="Raised by" value={requestItem.createdBy?.name || "-"} />
-                  <MetaItem label="Email" value={requestItem.createdBy?.email || "-"} />
-                  <MetaItem label="Client email" value={requestItem.project?.clientEmail || "-"} />
-                  <MetaItem label="Raised on" value={formatDate(requestItem.createdAt)} />
-                </dl>
-              </article>
-            )}
-          </ResourceDirectory>
-        ) : null}
-
-        {isIssuesPath ? (
-          <ResourceDirectory
-            countLabel={`${issues.length} total`}
-            emptyMessage="No issues found."
-            items={filteredIssues}
-            onSearch={setIssueSearch}
-            searchPlaceholder="Search by title, project, client, or status"
-            searchValue={issueSearch}
-            title="Issues"
-          >
-            {(issue) => (
-              <article className="rounded-lg border border-[#edf0f4] p-4" key={issue._id}>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="font-semibold">{issue.title}</h3>
-                    <p className="mt-1 text-sm text-[#5c6673]">{issue.project?.name || "Project"}</p>
-                  </div>
-                  <StatusBadge status={issue.status} />
-                </div>
-                <p className="mt-3 text-sm text-[#5c6673]">{issue.description || "No description"}</p>
-                <dl className="mt-4 grid gap-3 text-sm text-[#5c6673] sm:grid-cols-2">
-                  <MetaItem label="Client" value={issue.client?.name || "-"} />
-                  <MetaItem label="Client email" value={issue.client?.email || "-"} />
-                  <MetaItem label="Company" value={issue.client?.company || "-"} />
-                  <MetaItem label="Raised on" value={formatDate(issue.createdAt)} />
-                </dl>
-              </article>
-            )}
-          </ResourceDirectory>
-        ) : null}
-      </section>
-    </main>
-  );
-}
-
-function AdminHeader({ activePath, counts, currentAdmin, onLogout }) {
   const navItems = [
     { label: "Dashboard", path: "/" },
-    { label: `Clients (${counts.clients})`, path: "/clients" },
-    { label: `Projects (${counts.projects})`, path: "/projects" },
-    { label: `Members (${counts.members})`, path: "/members" },
-    { label: `Requests (${counts.requests})`, path: "/requests" },
-    { label: `Issues (${counts.issues})`, path: "/issues" },
+    { label: "Projects", path: "/projects" },
+    { label: "Boards", path: "/boards" },
+    { label: "Issues", path: "/issues" },
+    { label: "Sprints", path: "/sprints" },
+    { label: "Teams", path: "/teams" },
+    { label: "Reports", path: "/reports" },
+    { label: "Settings", path: "/settings" },
   ];
 
   return (
-    <div className="flex flex-col gap-5">
-      <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#6b4f1d]">OrbitDesk Admin</p>
-          <h1 className="mt-3 text-4xl font-bold">Operations dashboard</h1>
-          <p className="mt-2 text-sm text-[#5c6673]">{currentAdmin?.email || "Admin workspace"}</p>
-        </div>
-        <div className="grid w-full gap-2 sm:w-56">
-          <button className="h-11 rounded-md bg-[#243c5a] px-4 text-sm font-semibold text-white" onClick={() => routeTo("/projects/new")} type="button">
-            Add project
-          </button>
-          <button className="h-11 rounded-md bg-[#2f6f5e] px-4 text-sm font-semibold text-white" onClick={() => routeTo("/clients/onboard")} type="button">
-            Onboard client
-          </button>
-          <button className="h-11 rounded-md bg-[#6b4f1d] px-4 text-sm font-semibold text-white" onClick={() => routeTo("/members/new")} type="button">
-            Add member
-          </button>
-        </div>
-      </div>
+    <main className="workspace-shell">
+      <div className="workspace-layout">
+        <aside className="workspace-sidebar p-5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-blue-600 text-sm font-bold text-white">
+              OD
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-slate-900">OrbitDesk Admin</p>
+              <p className="muted-text text-xs">Work management command center</p>
+            </div>
+          </div>
 
-      <div className="flex flex-col gap-3 rounded-lg border border-[#d8dde5] bg-white p-4 shadow-sm lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex flex-wrap gap-2">
-          {navItems.map((item) => {
-            const isActive =
-              activePath === item.path ||
-              (item.path === "/projects" && activePath.startsWith("/projects/")) ||
-              (item.path === "/clients" && activePath.startsWith("/clients")) ||
-              (item.path === "/members" && activePath.startsWith("/members")) ||
-              (item.path === "/requests" && activePath.startsWith("/requests")) ||
-              (item.path === "/issues" && activePath.startsWith("/issues"));
+          <nav className="mt-8 space-y-2">
+            {navItems.map((item, index) => {
+              const isActive =
+                path === item.path ||
+                (item.path === "/projects" && path.startsWith("/projects")) ||
+                (item.path === "/issues" && path.startsWith("/issues")) ||
+                (item.path === "/teams" && path.startsWith("/members")) ||
+                (item.path === "/settings" && path.startsWith("/clients"));
 
-            return (
-              <button
-                className={`rounded-md px-4 py-2 text-sm font-semibold transition ${
-                  isActive ? "bg-[#6b4f1d] text-white" : "border border-[#c7ced8] bg-white text-[#414c5a]"
-                }`}
-                key={item.path}
-                onClick={() => routeTo(item.path)}
-                type="button"
-              >
-                {item.label}
-              </button>
-            );
-          })}
-        </div>
-        <button className="rounded-md border border-[#c7ced8] px-4 py-2 text-sm font-semibold text-[#414c5a]" onClick={onLogout} type="button">
-          Logout
-        </button>
+              return (
+                <button className={`sidebar-link w-full justify-between ${isActive ? "sidebar-link-active" : ""}`} key={item.path} onClick={() => routeTo(item.path)} type="button">
+                  <span className="flex items-center gap-3">
+                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-xs font-bold text-slate-600">
+                      {String(index + 1).padStart(2, "0")}
+                    </span>
+                    {item.label}
+                  </span>
+                </button>
+              );
+            })}
+            <button className={`sidebar-link w-full justify-between ${isClientsPath ? "sidebar-link-active" : ""}`} onClick={() => routeTo("/clients")} type="button">
+              <span className="flex items-center gap-3">
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-xs font-bold text-slate-600">09</span>
+                Clients
+              </span>
+            </button>
+            <button className={`sidebar-link w-full justify-between ${isRequestsPath ? "sidebar-link-active" : ""}`} onClick={() => routeTo("/requests")} type="button">
+              <span className="flex items-center gap-3">
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-xs font-bold text-slate-600">10</span>
+                Requests
+              </span>
+            </button>
+          </nav>
+
+          <div className="surface-muted mt-8 p-4">
+            <p className="text-sm font-semibold text-slate-900">{currentAdmin?.name || "Admin workspace"}</p>
+            <p className="muted-text mt-1 text-sm">{currentAdmin?.email || "Operations owner"}</p>
+          </div>
+        </aside>
+
+        <section className="workspace-main">
+          <header className="workspace-header p-6">
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <p className="eyebrow">Operations Overview</p>
+                <h1 className="hero-title mt-3">Jira-like delivery control with a cleaner admin surface</h1>
+                <p className="muted-text mt-3 max-w-3xl text-sm leading-6">
+                  Manage projects, delivery status, assignments, and reporting from a sidebar-first enterprise workspace.
+                </p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <button className="primary-button" onClick={() => routeTo("/projects/new")} type="button">
+                  New project
+                </button>
+                <button className="secondary-button" onClick={() => routeTo("/clients/onboard")} type="button">
+                  Onboard client
+                </button>
+                <button className="secondary-button" onClick={() => routeTo("/members/new")} type="button">
+                  Add member
+                </button>
+                <button className="secondary-button" onClick={loadDashboard} type="button">
+                  Refresh
+                </button>
+                <button className="secondary-button" onClick={logoutAdmin} type="button">
+                  Logout
+                </button>
+              </div>
+            </div>
+
+            {status ? <p className="status-success mt-5">{status}</p> : null}
+            {error ? <p className="status-error mt-5">{error}</p> : null}
+          </header>
+
+          {path === "/clients/onboard" ? (
+            <ClientOnboardingPage
+              form={forms.client}
+              loading={loading}
+              onBack={() => routeTo("/clients")}
+              onChange={(event) => updateForm("client", event)}
+              onSubmit={() => handleCreate("client", addClient, "/clients")}
+            />
+          ) : null}
+
+          {path === "/members/new" ? (
+            <MemberCreatePage
+              form={forms.member}
+              loading={loading}
+              onBack={() => routeTo("/members")}
+              onChange={(event) => updateForm("member", event)}
+              onSubmit={() => handleCreate("member", addMember, "/members")}
+            />
+          ) : null}
+
+          {isProjectCreatePath ? (
+            <ProjectCreatePage
+              form={forms.project}
+              loading={loading}
+              onBack={() => routeTo("/projects")}
+              onChange={(event) => updateForm("project", event)}
+              onAddPhase={addProjectPlanningPhase}
+              onAddSprint={addProjectPlanningSprint}
+              onAddTicket={addProjectPlanningTicket}
+              onPhaseChange={updateProjectPlanningPhase}
+              onRemovePhase={removeProjectPlanningPhase}
+              onRemoveSprint={removeProjectPlanningSprint}
+              onRemoveTicket={removeProjectPlanningTicket}
+              onSprintChange={updateProjectPlanningSprint}
+              onSubmit={() => handleCreate("project", addProject, "/projects")}
+              onTicketChange={updateProjectPlanningTicket}
+            />
+          ) : null}
+
+          {projectIdFromPath ? (
+            <ProjectDetailPage
+              adminTicketForm={forms.projectTicket}
+              loading={loading}
+              memberSearch={memberSearch}
+              onBack={() => routeTo("/projects")}
+              onCreateTicket={createAdminProjectTicket}
+              onSaveMembers={saveProjectMembers}
+              onSearchMembers={setMemberSearch}
+              onSprintStatusChange={handleSprintStatusChange}
+              onTicketFormChange={updateProjectTicketForm}
+              onToggleMember={toggleProjectMember}
+              project={selectedProject}
+              searchedMembers={searchedProjectMembers}
+              selectedMemberIds={selectedMemberIds}
+              selectedMembers={selectedMembers}
+              tickets={projectTickets}
+            />
+          ) : null}
+
+          {isDashboardPath ? (
+            <DashboardHome
+              activeClients={activeClients.length}
+              activeMembers={activeMembers.length}
+              activeProjectsCount={activeProjectsCount}
+              clients={filteredClients}
+              invitedClients={invitedClients.length}
+              invitedMembers={invitedMembers.length}
+              issues={filteredIssues}
+              members={filteredMembers}
+              projects={filteredProjects}
+              requests={filteredRequests}
+              totalClients={clients.length}
+              totalIssues={issues.length}
+              totalMembers={members.length}
+              totalProjects={projects.length}
+              totalRequests={requests.length}
+            />
+          ) : null}
+
+          {isBoardsPath ? <BoardPage issues={issues} projects={projects} requests={requests} /> : null}
+          {isSprintsPath ? <SprintsPage projects={projects} /> : null}
+          {isTeamsPath ? <TeamPage clients={clients} members={members} projects={projects} /> : null}
+          {isReportsPath ? <ReportsPage issues={issues} members={members} projects={projects} requests={requests} /> : null}
+          {isSettingsPath ? <SettingsPage clients={clients} members={members} /> : null}
+
+          {isClientsPath ? (
+            <ClientsPage clients={filteredClients} searchValue={clientSearch} onSearch={setClientSearch} />
+          ) : null}
+
+          {isMembersPath ? (
+            <MembersPage members={filteredMembers} searchValue={memberDirectorySearch} onSearch={setMemberDirectorySearch} />
+          ) : null}
+
+          {isProjectsPath ? (
+            <ProjectsPage projects={filteredProjects} searchValue={projectSearch} onSearch={setProjectSearch} />
+          ) : null}
+
+          {isRequestsPath ? (
+            <RequestsPage requests={filteredRequests} searchValue={requestSearch} onSearch={setRequestSearch} />
+          ) : null}
+
+          {isIssuesPath ? (
+            <IssuesPage issues={filteredIssues} searchValue={issueSearch} onSearch={setIssueSearch} />
+          ) : null}
+        </section>
       </div>
-    </div>
+    </main>
   );
 }
 
@@ -915,293 +844,599 @@ function DashboardHome({
   activeMembers,
   activeProjectsCount,
   clients,
-  clientSearch,
   invitedClients,
   invitedMembers,
+  issues,
   members,
-  memberSearch,
-  onClientSearch,
-  onMemberSearch,
-  onProjectSearch,
-  projectSearch,
   projects,
   requests,
-  issues,
   totalClients,
   totalIssues,
   totalMembers,
   totalProjects,
   totalRequests,
 }) {
+  const overdueTasks = issues.filter((issue) => issue.deadline && new Date(issue.deadline) < new Date()).length;
+  const recentUpdates = [...requests, ...issues].slice(0, 5);
+
   return (
-    <>
-      <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <SummaryCard label="Clients" sublabel={`${activeClients} active / ${invitedClients} invited`} value={totalClients} />
-        <SummaryCard label="Projects" sublabel={`${activeProjectsCount} active`} value={totalProjects} />
-        <SummaryCard label="Members" sublabel={`${activeMembers} active / ${invitedMembers} invited`} value={totalMembers} />
-        <SummaryCard label="Requests" sublabel="Member-raised admin review queue" value={totalRequests} />
-        <SummaryCard label="Issues" sublabel="Client-raised review queue" value={totalIssues} />
-      </div>
+    <div className="mt-6 space-y-6">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard label="Total projects" value={totalProjects} note={`${activeProjectsCount} active right now`} onClick={() => routeTo("/projects")} />
+        <MetricCard label="Open issues" value={totalIssues} note="Client-visible issue queue" onClick={() => routeTo("/issues")} />
+        <MetricCard label="Completed tasks" value={projects.filter((project) => project.status === "completed").length} note="Projects fully delivered" onClick={() => routeTo("/projects")} />
+        <MetricCard label="Overdue tasks" value={overdueTasks} note="Needs attention today" onClick={() => routeTo("/issues")} />
+      </section>
 
-      <div className="mt-6 grid gap-6">
-        <section className="rounded-lg border border-[#d8dde5] bg-white p-5 shadow-sm">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+        <section className="surface-card p-6">
+          <div className="flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-xl font-semibold">Clients</h2>
-              <p className="mt-1 text-sm text-[#5c6673]">Search and review every onboarded client.</p>
+              <p className="eyebrow">Portfolio</p>
+              <h2 className="section-title mt-3">Project progress cards</h2>
             </div>
-            <div className="flex flex-col gap-2 sm:w-[24rem] sm:flex-row">
-              <input className="h-10 flex-1 rounded-md border border-[#c7ced8] px-3 text-sm outline-none focus:border-[#6b4f1d]" onChange={(event) => onClientSearch(event.target.value)} placeholder="Search clients" value={clientSearch} />
-              <button className="rounded-md border border-[#c7ced8] px-3 py-2 text-sm font-semibold" onClick={() => routeTo("/clients")} type="button">
-                See all
-              </button>
-            </div>
-          </div>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {clients.slice(0, 6).map((client) => (
-              <article className="rounded-lg border border-[#edf0f4] p-4" key={client._id}>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="font-semibold">{client.name}</h3>
-                    <p className="text-sm text-[#5c6673]">{client.email}</p>
-                  </div>
-                  <StatusBadge status={client.status} />
-                </div>
-                <p className="mt-3 text-sm text-[#5c6673]">{client.company || "No company provided"}</p>
-                {client.agreementDocument?.url ? (
-                  <a className="mt-3 inline-block text-sm font-semibold text-[#2f6f5e]" href={client.agreementDocument.url} rel="noreferrer" target="_blank">
-                    View agreement
-                  </a>
-                ) : null}
-              </article>
-            ))}
-            {!clients.length ? <p className="text-sm text-[#5c6673]">No clients found.</p> : null}
-          </div>
-        </section>
-
-        <section className="rounded-lg border border-[#d8dde5] bg-white p-5 shadow-sm">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-xl font-semibold">Projects</h2>
-              <p className="mt-1 text-sm text-[#5c6673]">Open a project to manage member assignments and review tickets.</p>
-            </div>
-            <div className="flex flex-col gap-2 sm:w-[24rem] sm:flex-row">
-              <input className="h-10 flex-1 rounded-md border border-[#c7ced8] px-3 text-sm outline-none focus:border-[#6b4f1d]" onChange={(event) => onProjectSearch(event.target.value)} placeholder="Search projects" value={projectSearch} />
-              <button className="rounded-md border border-[#c7ced8] px-3 py-2 text-sm font-semibold" onClick={() => routeTo("/projects")} type="button">
-                See all
-              </button>
-            </div>
-          </div>
-          <div className="mt-5 grid gap-3">
-            {projects.slice(0, 6).map((project) => (
-              <button className="rounded-lg border border-[#edf0f4] p-4 text-left transition hover:border-[#6b4f1d]" key={project._id} onClick={() => routeTo(`/projects/${project._id}`)} type="button">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="font-semibold">{project.name}</h3>
-                    <p className="text-sm text-[#5c6673]">{project.clientEmail || "No client assigned"}</p>
-                    <p className="mt-1 text-xs font-semibold text-[#6b4f1d]">{project.members?.length || 0} members assigned</p>
-                  </div>
-                  <StatusBadge status={project.status} />
-                </div>
-              </button>
-            ))}
-            {!projects.length ? <p className="text-sm text-[#5c6673]">No projects yet.</p> : null}
-          </div>
-        </section>
-
-        <section className="rounded-lg border border-[#d8dde5] bg-white p-5 shadow-sm">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-xl font-semibold">Members</h2>
-              <p className="mt-1 text-sm text-[#5c6673]">Track invited and active team members in one place.</p>
-            </div>
-            <div className="flex flex-col gap-2 sm:w-[24rem] sm:flex-row">
-              <input className="h-10 flex-1 rounded-md border border-[#c7ced8] px-3 text-sm outline-none focus:border-[#6b4f1d]" onChange={(event) => onMemberSearch(event.target.value)} placeholder="Search members" value={memberSearch} />
-              <button className="rounded-md border border-[#c7ced8] px-3 py-2 text-sm font-semibold" onClick={() => routeTo("/members")} type="button">
-                See all
-              </button>
-            </div>
-          </div>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {members.slice(0, 6).map((member) => (
-              <article className="rounded-lg border border-[#edf0f4] p-4" key={member._id}>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="font-semibold">{member.name}</h3>
-                    <p className="text-sm text-[#5c6673]">{member.email}</p>
-                  </div>
-                  <StatusBadge status={member.status} />
-                </div>
-                <p className="mt-3 text-sm text-[#5c6673]">Invited: {formatDate(member.invitedAt)}</p>
-              </article>
-            ))}
-            {!members.length ? <p className="text-sm text-[#5c6673]">No members found.</p> : null}
-          </div>
-        </section>
-
-        <section className="rounded-lg border border-[#d8dde5] bg-white p-5 shadow-sm">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-xl font-semibold">Requests</h2>
-              <p className="mt-1 text-sm text-[#5c6673]">Requests raised by members for admin review.</p>
-            </div>
-            <button className="rounded-md border border-[#c7ced8] px-3 py-2 text-sm font-semibold" onClick={() => routeTo("/requests")} type="button">
-              View requests
+            <button className="secondary-button" onClick={() => routeTo("/projects")} type="button">
+              Manage projects
             </button>
           </div>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {requests.slice(0, 6).map((requestItem) => (
-              <article className="rounded-lg border border-[#edf0f4] p-4" key={requestItem._id}>
+          <div className="mt-6 grid gap-4 lg:grid-cols-2">
+            {projects.slice(0, 4).map((project) => (
+              <button className="surface-muted w-full p-5 text-left hover:border-violet-200 hover:shadow-md" key={project._id} onClick={() => routeTo(`/projects/${project._id}`)} type="button">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <h3 className="font-semibold">{requestItem.title}</h3>
-                    <p className="text-sm text-[#5c6673]">{requestItem.project?.name || "Project"}</p>
+                    <h3 className="text-lg font-semibold text-slate-900">{project.name}</h3>
+                    <p className="muted-text mt-2 text-sm">{project.clientEmail || "No client assigned"}</p>
                   </div>
-                  <StatusBadge status={requestItem.status} />
+                  <span className="badge badge-primary">{normalizeStatus(project.status)}</span>
                 </div>
-                <p className="mt-3 text-sm text-[#5c6673]">{requestItem.createdBy?.name || "Member"}</p>
-              </article>
+                <p className="muted-text mt-3 text-sm">{project.description || "No description provided."}</p>
+                <div className="mt-4 flex items-center justify-between text-sm">
+                  <span className="font-semibold text-slate-900">Progress</span>
+                  <span className="muted-text">{percentComplete(project)}%</span>
+                </div>
+                <div className="progress-track mt-2">
+                  <div className="progress-fill" style={{ width: `${percentComplete(project)}%` }} />
+                </div>
+              </button>
             ))}
-            {!requests.length ? <p className="text-sm text-[#5c6673]">No requests found.</p> : null}
           </div>
         </section>
 
-        <section className="rounded-lg border border-[#d8dde5] bg-white p-5 shadow-sm">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-xl font-semibold">Issues</h2>
-              <p className="mt-1 text-sm text-[#5c6673]">Issues raised by clients for admin review.</p>
+        <section className="space-y-6">
+          <article className="surface-card p-6">
+            <p className="eyebrow">Teams</p>
+            <h2 className="section-title mt-3 text-xl">Workspace pulse</h2>
+            <div className="mt-5 grid gap-3">
+              <CompactStat label="Clients" value={`${activeClients} active / ${invitedClients} invited`} onClick={() => routeTo("/clients")} />
+              <CompactStat label="Members" value={`${activeMembers} active / ${invitedMembers} invited`} onClick={() => routeTo("/members")} />
+              <CompactStat label="Requests" value={`${totalRequests} open collaboration items`} onClick={() => routeTo("/requests")} />
+              <CompactStat label="Issues" value={`${issues.filter((issue) => issue.status === "open").length} open issue reports`} onClick={() => routeTo("/issues")} />
             </div>
-            <button className="rounded-md border border-[#c7ced8] px-3 py-2 text-sm font-semibold" onClick={() => routeTo("/issues")} type="button">
-              View issues
-            </button>
-          </div>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {issues.slice(0, 6).map((issue) => (
-              <article className="rounded-lg border border-[#edf0f4] p-4" key={issue._id}>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="font-semibold">{issue.title}</h3>
-                    <p className="text-sm text-[#5c6673]">{issue.project?.name || "Project"}</p>
+          </article>
+
+          <article className="surface-card p-6">
+            <p className="eyebrow">Recent Updates</p>
+            <h2 className="section-title mt-3 text-xl">Priority items</h2>
+            <div className="mt-5 space-y-3">
+              {recentUpdates.map((item) => (
+                <button className="surface-muted w-full p-4 text-left hover:border-violet-200" key={item._id} onClick={() => routeTo(item.createdBy ? "/requests" : "/issues")} type="button">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-slate-900">{item.title}</p>
+                      <p className="muted-text mt-1 text-sm">{item.project?.name || item.client?.name || "Workspace item"}</p>
+                    </div>
+                    <span className="badge badge-info">{normalizeStatus(item.status || "open")}</span>
                   </div>
-                  <StatusBadge status={issue.status} />
-                </div>
-                <p className="mt-3 text-sm text-[#5c6673]">{issue.client?.name || "Client"}</p>
-              </article>
-            ))}
-            {!issues.length ? <p className="text-sm text-[#5c6673]">No issues found.</p> : null}
-          </div>
+                </button>
+              ))}
+              {!recentUpdates.length ? <EmptyState copy="No recent updates yet." /> : null}
+            </div>
+          </article>
         </section>
       </div>
-    </>
+
+      <div className="grid gap-6 xl:grid-cols-3">
+        <QuickTable title="Client visibility" rows={clients.slice(0, 5)} columns={[["Name", "name"], ["Company", "company"], ["Status", "status"]]} onClick={() => routeTo("/clients")} />
+        <QuickTable title="Team activity" rows={members.slice(0, 5)} columns={[["Member", "name"], ["Email", "email"], ["Status", "status"]]} onClick={() => routeTo("/members")} />
+        <QuickTable title="Open requests" rows={requests.slice(0, 5)} columns={[["Title", "title"], ["Project", "project.name"], ["Status", "status"]]} onClick={() => routeTo("/requests")} />
+      </div>
+    </div>
   );
 }
 
-function SummaryCard({ label, sublabel, value }) {
-  return (
-    <article className="rounded-lg border border-[#d8dde5] bg-white p-5 shadow-sm">
-      <p className="text-sm font-semibold text-[#5c6673]">{label}</p>
-      <strong className="mt-2 block text-3xl">{value}</strong>
-      {sublabel ? <p className="mt-2 text-sm text-[#5c6673]">{sublabel}</p> : null}
-    </article>
-  );
-}
+function BoardPage({ issues, projects, requests }) {
+  const derivedTasks = [
+    ...issues.map((issue) => ({
+      id: issue._id,
+      title: issue.title,
+      description: issue.description,
+      status: issue.status || "backlog",
+      owner: issue.client?.name || issue.client?.email || "Client",
+      dueDate: issue.createdAt,
+      tag: issue.project?.name || "Issue",
+      priority: "High",
+    })),
+    ...requests.map((requestItem) => ({
+      id: requestItem._id,
+      title: requestItem.title,
+      description: requestItem.description,
+      status: requestItem.status || "to_do",
+      owner: requestItem.createdBy?.name || "Member",
+      dueDate: requestItem.createdAt,
+      tag: requestItem.project?.name || "Request",
+      priority: "Medium",
+    })),
+    ...projects.map((project) => ({
+      id: project._id,
+      title: project.name,
+      description: project.description,
+      status: project.status === "completed" ? "done" : project.status === "active" ? "in_progress" : "backlog",
+      owner: project.clientEmail || "Unassigned",
+      dueDate: project.updatedAt || project.createdAt,
+      tag: "Project",
+      priority: "Normal",
+    })),
+  ];
 
-function ResourceDirectory({
-  actionLabel,
-  children,
-  countLabel,
-  emptyMessage,
-  items,
-  onAction,
-  onSearch,
-  searchPlaceholder,
-  searchValue,
-  title,
-}) {
+  const columns = [
+    { key: "backlog", label: "Backlog" },
+    { key: "to_do", label: "To Do" },
+    { key: "in_progress", label: "In Progress" },
+    { key: "in_review", label: "In Review" },
+    { key: "done", label: "Done" },
+  ];
+
   return (
-    <section className="mt-8 rounded-lg border border-[#d8dde5] bg-white p-5 shadow-sm">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+    <section className="surface-card mt-6 p-6">
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-semibold">{title}</h2>
-          <p className="mt-1 text-sm text-[#5c6673]">{countLabel}</p>
+          <p className="eyebrow">Boards</p>
+          <h2 className="section-title mt-3">Kanban-style workspace board</h2>
         </div>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <input
-            className="h-11 w-full rounded-md border border-[#c7ced8] px-3 text-sm outline-none focus:border-[#6b4f1d] sm:w-80"
-            onChange={(event) => onSearch(event.target.value)}
-            placeholder={searchPlaceholder}
-            value={searchValue}
-          />
-          {actionLabel && onAction ? (
-            <button className="h-11 rounded-md bg-[#6b4f1d] px-4 text-sm font-semibold text-white" onClick={onAction} type="button">
-              {actionLabel}
-            </button>
-          ) : null}
-        </div>
+        <span className="glass-chip">{derivedTasks.length} items</span>
       </div>
+      <div className="board-scroll mt-6">
+        <div className="board-grid">
+          {columns.map((column) => {
+            const items = derivedTasks.filter((task) => {
+              if (column.key === "backlog") {
+                return ["planned", "open", "backlog"].includes((task.status || "").toLowerCase());
+              }
+              if (column.key === "to_do") {
+                return ["to_do"].includes((task.status || "").toLowerCase());
+              }
+              if (column.key === "in_progress") {
+                return ["active", "in_progress"].includes((task.status || "").toLowerCase());
+              }
+              if (column.key === "in_review") {
+                return ["in_review", "review"].includes((task.status || "").toLowerCase());
+              }
+              return ["done", "completed", "resolved"].includes((task.status || "").toLowerCase());
+            });
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-2">
-        {items.map((item) => children(item))}
-        {!items.length ? <p className="text-sm text-[#5c6673]">{emptyMessage}</p> : null}
+            return (
+              <div className="kanban-column" key={column.key}>
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-slate-900">{column.label}</h3>
+                  <span className="glass-chip">{items.length}</span>
+                </div>
+                <div className="mt-4 space-y-3">
+                  {items.map((task) => (
+                    <article className="task-card" key={task.id}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <h4 className="font-semibold text-slate-900">{task.title}</h4>
+                          <p className="muted-text mt-1 text-sm">{task.description || "No description provided."}</p>
+                        </div>
+                        <span className={`badge ${task.priority === "High" ? "badge-danger" : task.priority === "Medium" ? "badge-warning" : "badge-info"}`}>
+                          {task.priority}
+                        </span>
+                      </div>
+                      <div className="mt-4 flex items-center justify-between gap-3">
+                        <span className="glass-chip">{task.tag}</span>
+                        <span className="avatar-badge">{getInitials(task.owner)}</span>
+                      </div>
+                      <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
+                        <span>{task.owner}</span>
+                        <span>{formatDate(task.dueDate)}</span>
+                      </div>
+                    </article>
+                  ))}
+                  {!items.length ? <div className="surface-muted p-4 text-sm text-slate-500">No tasks in this column.</div> : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </section>
   );
 }
 
-function StatusBadge({ status }) {
-  const normalizedStatus = status || "unknown";
-  const tone =
-    normalizedStatus === "active"
-      ? "bg-[#e8f5eb] text-[#1b6b3a]"
-      : normalizedStatus === "invited" || normalizedStatus === "planned"
-        ? "bg-[#fff4da] text-[#8a6116]"
-        : normalizedStatus === "completed"
-          ? "bg-[#eef1f5] text-[#414c5a]"
-          : "bg-[#eef1f5] text-[#414c5a]";
-
-  return <span className={`rounded-md px-3 py-1 text-sm font-semibold capitalize ${tone}`}>{normalizedStatus.replaceAll("_", " ")}</span>;
+function SprintsPage({ projects }) {
+  return (
+    <section className="surface-card mt-6 p-6">
+      <p className="eyebrow">Sprints</p>
+      <h2 className="section-title mt-3">Sprint status management</h2>
+      <div className="mt-6 space-y-4">
+        {projects.map((project) => (
+          <article className="surface-muted p-5" key={project._id}>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">{project.name}</h3>
+                <p className="muted-text mt-1 text-sm">{project.clientEmail || "No client assigned"}</p>
+              </div>
+              <span className="badge badge-primary">{countPlannedTickets(project.planning)} planned items</span>
+            </div>
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              {(project.planning || []).flatMap((phase, phaseIndex) =>
+                (phase.sprints || []).map((sprint, sprintIndex) => (
+                  <div className="surface-card p-4" key={`${project._id}-${phaseIndex}-${sprintIndex}`}>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{phase.name || `Phase ${phaseIndex + 1}`}</p>
+                        <h4 className="mt-2 font-semibold text-slate-900">{sprint.name || `Sprint ${sprintIndex + 1}`}</h4>
+                      </div>
+                      <span className="badge badge-info">{normalizeStatus(sprint.status || "planned")}</span>
+                    </div>
+                    <p className="muted-text mt-3 text-sm">{sprint.outcome || "No sprint outcome defined."}</p>
+                  </div>
+                )),
+              )}
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
 }
 
-function MetaItem({ label, value }) {
+function TeamPage({ clients, members, projects }) {
   return (
-    <div>
-      <dt className="text-xs font-semibold uppercase tracking-[0.08em] text-[#7b8490]">{label}</dt>
-      <dd className="mt-1 text-sm text-[#5c6673]">{value}</dd>
+    <div className="mt-6 grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+      <section className="surface-card p-6">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="eyebrow">User Management</p>
+            <h2 className="section-title mt-3">Members and roles</h2>
+          </div>
+          <button className="secondary-button" onClick={() => routeTo("/members")} type="button">
+            Open member directory
+          </button>
+        </div>
+        <div className="table-shell mt-6">
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>User</th>
+                  <th>Status</th>
+                  <th>Assigned Projects</th>
+                  <th>Role</th>
+                </tr>
+              </thead>
+              <tbody>
+                {members.map((member) => (
+                  <tr key={member._id}>
+                    <td>
+                      <div className="flex items-center gap-3">
+                        <span className="avatar-badge">{getInitials(member.name)}</span>
+                        <div>
+                          <p className="font-semibold text-slate-900">{member.name}</p>
+                          <p className="muted-text text-sm">{member.email}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td><StatusBadge status={member.status} /></td>
+                    <td>{projects.filter((project) => (project.members || []).some((item) => item._id === member._id)).length}</td>
+                    <td><span className="badge badge-primary">Contributor</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section className="space-y-6">
+        <article className="surface-card p-6">
+          <p className="eyebrow">Permissions</p>
+          <h2 className="section-title mt-3 text-xl">Role and permission management</h2>
+          <div className="mt-5 space-y-3">
+            {[
+              ["Workspace Admin", "Full portfolio access, sprint control, user management"],
+              ["Project Lead", "Can manage project members, backlog, and project tickets"],
+              ["Contributor", "Can update tasks, collaborate, and raise requests"],
+            ].map(([role, note]) => (
+              <div className="surface-muted p-4" key={role}>
+                <p className="font-semibold text-slate-900">{role}</p>
+                <p className="muted-text mt-2 text-sm">{note}</p>
+              </div>
+            ))}
+          </div>
+        </article>
+
+        <article className="surface-card p-6">
+          <p className="eyebrow">Client Access</p>
+          <h2 className="section-title mt-3 text-xl">Workspace stakeholders</h2>
+          <div className="mt-5 space-y-3">
+            {clients.slice(0, 4).map((client) => (
+              <div className="surface-muted flex items-center justify-between gap-3 p-4" key={client._id}>
+                <div>
+                  <p className="font-semibold text-slate-900">{client.name}</p>
+                  <p className="muted-text text-sm">{client.company || client.email}</p>
+                </div>
+                <StatusBadge status={client.status} />
+              </div>
+            ))}
+          </div>
+        </article>
+      </section>
     </div>
+  );
+}
+
+function ReportsPage({ issues, members, projects, requests }) {
+  const completedProjects = projects.filter((project) => project.status === "completed").length;
+  const responseLoad = Math.max(1, Math.round((requests.length + issues.length) / Math.max(1, members.length)));
+
+  return (
+    <div className="mt-6 grid gap-6 xl:grid-cols-2">
+      <article className="surface-card p-6">
+        <p className="eyebrow">System Analytics</p>
+        <h2 className="section-title mt-3">Operational metrics</h2>
+        <div className="mt-6 grid gap-4 sm:grid-cols-2">
+          <MetricCard label="Completed projects" value={completedProjects} note="Delivered to clients" />
+          <MetricCard label="Open requests" value={requests.filter((item) => item.status === "open").length} note="Needs admin action" />
+          <MetricCard label="Issue load per member" value={responseLoad} note="Approximate workload signal" />
+          <MetricCard label="Active delivery team" value={members.filter((member) => member.status === "active").length} note="Available contributors" />
+        </div>
+      </article>
+
+      <article className="surface-card p-6">
+        <p className="eyebrow">Recent Signals</p>
+        <h2 className="section-title mt-3">Queue health</h2>
+        <div className="mt-5 space-y-3">
+          {[...issues.slice(0, 3), ...requests.slice(0, 3)].map((item) => (
+            <div className="surface-muted flex items-start justify-between gap-3 p-4" key={item._id}>
+              <div>
+                <p className="font-semibold text-slate-900">{item.title}</p>
+                <p className="muted-text mt-1 text-sm">{item.project?.name || "Workspace item"}</p>
+              </div>
+              <span className="badge badge-info">{normalizeStatus(item.status || "open")}</span>
+            </div>
+          ))}
+        </div>
+      </article>
+    </div>
+  );
+}
+
+function SettingsPage({ clients, members }) {
+  return (
+    <div className="mt-6 grid gap-6 xl:grid-cols-2">
+      <article className="surface-card p-6">
+        <p className="eyebrow">Workspace Settings</p>
+        <h2 className="section-title mt-3">Configuration overview</h2>
+        <div className="mt-5 space-y-3">
+          <SettingRow label="Active members" value={members.filter((member) => member.status === "active").length} />
+          <SettingRow label="Active clients" value={clients.filter((client) => client.status === "active").length} />
+          <SettingRow label="Primary board style" value="Kanban delivery board" />
+          <SettingRow label="Notification mode" value="Email + in-app placeholders" />
+        </div>
+      </article>
+
+      <article className="surface-card p-6">
+        <p className="eyebrow">Admin Notes</p>
+        <h2 className="section-title mt-3">Planned configuration modules</h2>
+        <div className="mt-5 space-y-3">
+          {[
+            "Workspace branding and domain settings",
+            "Automation rules for issue routing",
+            "SLA targets and escalation policies",
+            "Role-based permission templates",
+          ].map((item) => (
+            <div className="surface-muted p-4" key={item}>
+              <p className="text-sm font-semibold text-slate-900">{item}</p>
+            </div>
+          ))}
+        </div>
+      </article>
+    </div>
+  );
+}
+
+function ClientsPage({ clients, onSearch, searchValue }) {
+  return (
+    <DirectoryPage actionLabel="Onboard client" countLabel={`${clients.length} total`} onAction={() => routeTo("/clients/onboard")} onSearch={onSearch} searchPlaceholder="Search clients" searchValue={searchValue} title="Clients">
+      <div className="table-shell mt-6">
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Client</th>
+                <th>Company</th>
+                <th>Status</th>
+                <th>Phone</th>
+                <th>Agreement</th>
+              </tr>
+            </thead>
+            <tbody>
+              {clients.map((client) => (
+                <tr key={client._id}>
+                  <td>
+                    <p className="font-semibold text-slate-900">{client.name}</p>
+                    <p className="muted-text text-sm">{client.email}</p>
+                  </td>
+                  <td>{client.company || "-"}</td>
+                  <td><StatusBadge status={client.status} /></td>
+                  <td>{client.phone || "-"}</td>
+                  <td>
+                    {client.agreementDocument?.url ? (
+                      <a className="secondary-button px-3 py-2" href={client.agreementDocument.url} rel="noreferrer" target="_blank">
+                        View
+                      </a>
+                    ) : (
+                      <span className="muted-text">Pending</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </DirectoryPage>
+  );
+}
+
+function MembersPage({ members, onSearch, searchValue }) {
+  return (
+    <DirectoryPage actionLabel="Add member" countLabel={`${members.length} total`} onAction={() => routeTo("/members/new")} onSearch={onSearch} searchPlaceholder="Search members" searchValue={searchValue} title="User Management">
+      <div className="table-shell mt-6">
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>User</th>
+                <th>Status</th>
+                <th>Invited</th>
+                <th>Password Set</th>
+              </tr>
+            </thead>
+            <tbody>
+              {members.map((member) => (
+                <tr key={member._id}>
+                  <td>
+                    <div className="flex items-center gap-3">
+                      <span className="avatar-badge">{getInitials(member.name)}</span>
+                      <div>
+                        <p className="font-semibold text-slate-900">{member.name}</p>
+                        <p className="muted-text text-sm">{member.email}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td><StatusBadge status={member.status} /></td>
+                  <td>{formatDate(member.invitedAt)}</td>
+                  <td>{formatDate(member.passwordSetAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </DirectoryPage>
+  );
+}
+
+function ProjectsPage({ projects, onSearch, searchValue }) {
+  return (
+    <DirectoryPage actionLabel="Add project" countLabel={`${projects.length} total`} onAction={() => routeTo("/projects/new")} onSearch={onSearch} searchPlaceholder="Search projects" searchValue={searchValue} title="Project Management">
+      <div className="mt-6 grid gap-4 lg:grid-cols-2">
+        {projects.map((project) => (
+          <article className="surface-muted p-5" key={project._id}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">{project.name}</h3>
+                <p className="muted-text mt-2 text-sm">{project.description || "No description provided."}</p>
+              </div>
+              <StatusBadge status={project.status} />
+            </div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              <CompactStat label="Client" value={project.clientEmail || "-"} />
+              <CompactStat label="Members" value={project.members?.length || 0} />
+              <CompactStat label="Planned" value={countPlannedTickets(project.planning)} />
+            </div>
+            <button className="primary-button mt-5" onClick={() => routeTo(`/projects/${project._id}`)} type="button">
+              Open workspace
+            </button>
+          </article>
+        ))}
+      </div>
+    </DirectoryPage>
+  );
+}
+
+function RequestsPage({ requests, onSearch, searchValue }) {
+  return (
+    <DirectoryPage countLabel={`${requests.length} total`} onSearch={onSearch} searchPlaceholder="Search requests" searchValue={searchValue} title="Requests">
+      <div className="mt-6 grid gap-4 lg:grid-cols-2">
+        {requests.map((requestItem) => (
+          <article className="surface-muted p-5" key={requestItem._id}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="font-semibold text-slate-900">{requestItem.title}</h3>
+                <p className="muted-text mt-1 text-sm">{requestItem.project?.name || "Project"}</p>
+              </div>
+              <StatusBadge status={requestItem.status} />
+            </div>
+            <p className="muted-text mt-3 text-sm">{requestItem.description || "No description"}</p>
+            <p className="muted-text mt-3 text-sm">Raised by {requestItem.createdBy?.name || "-"}</p>
+          </article>
+        ))}
+      </div>
+    </DirectoryPage>
+  );
+}
+
+function IssuesPage({ issues, onSearch, searchValue }) {
+  return (
+    <DirectoryPage countLabel={`${issues.length} total`} onSearch={onSearch} searchPlaceholder="Search issues" searchValue={searchValue} title="Issues">
+      <div className="mt-6 grid gap-4 lg:grid-cols-2">
+        {issues.map((issue) => (
+          <article className="surface-muted p-5" key={issue._id}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="font-semibold text-slate-900">{issue.title}</h3>
+                <p className="muted-text mt-1 text-sm">{issue.project?.name || "Project"}</p>
+              </div>
+              <StatusBadge status={issue.status} />
+            </div>
+            <p className="muted-text mt-3 text-sm">{issue.description || "No description"}</p>
+            <p className="muted-text mt-3 text-sm">Client: {issue.client?.name || issue.client?.email || "-"}</p>
+          </article>
+        ))}
+      </div>
+    </DirectoryPage>
+  );
+}
+
+function DirectoryPage({ actionLabel, children, countLabel, onAction, onSearch, searchPlaceholder, searchValue, title }) {
+  return (
+    <section className="surface-card mt-6 p-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <p className="eyebrow">{title}</p>
+          <h2 className="section-title mt-3">{title}</h2>
+          <p className="muted-text mt-2 text-sm">{countLabel}</p>
+        </div>
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <input className="input-field mt-0 sm:min-w-[320px]" onChange={(event) => onSearch?.(event.target.value)} placeholder={searchPlaceholder} value={searchValue || ""} />
+          {actionLabel ? <button className="primary-button" onClick={onAction} type="button">{actionLabel}</button> : null}
+        </div>
+      </div>
+      {children}
+    </section>
   );
 }
 
 function ClientOnboardingPage({ form, loading, onBack, onChange, onSubmit }) {
   return (
-    <FormPage title="Onboard client" onBack={onBack} onSubmit={onSubmit}>
-      <TextField label="Name" name="name" onChange={onChange} required value={form.name} />
-      <TextField label="Email" name="email" onChange={onChange} required type="email" value={form.email} />
-      <TextField label="Company" name="company" onChange={onChange} value={form.company} />
-      <TextField label="Phone" name="phone" onChange={onChange} value={form.phone} />
-      <label className="block text-sm font-semibold" htmlFor="agreement">
-        Signed agreement document
-        <input
-          accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"
-          className="mt-2 block w-full rounded-md border border-[#c7ced8] px-3 py-3 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-[#eef1f5] file:px-3 file:py-2 file:text-sm file:font-semibold file:text-[#414c5a] focus:border-[#6b4f1d] focus:outline-none focus:ring-2 focus:ring-[#6b4f1d]/20"
-          id="agreement"
-          name="agreement"
-          onChange={onChange}
-          required
-          type="file"
-        />
-      </label>
-      <SubmitButton loading={loading} label="Create client and send mail" />
+    <FormPage title="Onboard client" description="Create a clean client profile and upload the working agreement." onBack={onBack} onSubmit={onSubmit} loading={loading} submitLabel="Create client">
+      <label className="block text-sm font-semibold text-slate-900">Name<input className="input-field" name="name" onChange={onChange} required value={form.name} /></label>
+      <label className="block text-sm font-semibold text-slate-900">Email<input className="input-field" name="email" onChange={onChange} required type="email" value={form.email} /></label>
+      <label className="block text-sm font-semibold text-slate-900">Company<input className="input-field" name="company" onChange={onChange} value={form.company} /></label>
+      <label className="block text-sm font-semibold text-slate-900">Phone<input className="input-field" name="phone" onChange={onChange} value={form.phone} /></label>
+      <label className="block text-sm font-semibold text-slate-900">Agreement<input className="input-field" name="agreement" onChange={onChange} required type="file" /></label>
     </FormPage>
   );
 }
 
 function MemberCreatePage({ form, loading, onBack, onChange, onSubmit }) {
   return (
-    <FormPage title="Add member" onBack={onBack} onSubmit={onSubmit}>
-      <TextField label="Name" name="name" onChange={onChange} required value={form.name} />
-      <TextField label="Email" name="email" onChange={onChange} required type="email" value={form.email} />
-      <SubmitButton loading={loading} label="Add member and send mail" />
+    <FormPage title="Add member" description="Invite a new team member into the delivery workspace." onBack={onBack} onSubmit={onSubmit} loading={loading} submitLabel="Create member">
+      <label className="block text-sm font-semibold text-slate-900">Name<input className="input-field" name="name" onChange={onChange} required value={form.name} /></label>
+      <label className="block text-sm font-semibold text-slate-900">Email<input className="input-field" name="email" onChange={onChange} required type="email" value={form.email} /></label>
     </FormPage>
   );
 }
@@ -1223,36 +1458,86 @@ function ProjectCreatePage({
   onTicketChange,
 }) {
   return (
-    <FormPage title="Add project" onBack={onBack} onSubmit={onSubmit}>
-      <TextField label="Project name" name="name" onChange={onChange} required value={form.name} />
-      <TextField label="Client email" name="clientEmail" onChange={onChange} type="email" value={form.clientEmail} />
-      <label className="block text-sm font-semibold" htmlFor="status">
-        Status
-        <select className="mt-2 h-12 w-full rounded-md border border-[#c7ced8] px-3 outline-none focus:border-[#6b4f1d] focus:ring-2 focus:ring-[#6b4f1d]/20" id="status" name="status" onChange={onChange} value={form.status}>
-          <option value="planned">Planned</option>
-          <option value="active">Active</option>
-          <option value="paused">Paused</option>
-          <option value="completed">Completed</option>
-        </select>
-      </label>
-      <label className="block text-sm font-semibold" htmlFor="description">
-        Description
-        <textarea className="mt-2 min-h-24 w-full rounded-md border border-[#c7ced8] px-3 py-2 outline-none focus:border-[#6b4f1d] focus:ring-2 focus:ring-[#6b4f1d]/20" id="description" name="description" onChange={onChange} value={form.description} />
-      </label>
-      <ProjectPlanningEditor
-        planning={form.planning}
-        onAddPhase={onAddPhase}
-        onAddSprint={onAddSprint}
-        onAddTicket={onAddTicket}
-        onPhaseChange={onPhaseChange}
-        onRemovePhase={onRemovePhase}
-        onRemoveSprint={onRemoveSprint}
-        onRemoveTicket={onRemoveTicket}
-        onSprintChange={onSprintChange}
-        onTicketChange={onTicketChange}
-      />
-      <SubmitButton loading={loading} label="Add project" />
-    </FormPage>
+    <section className="surface-card mt-6 p-6">
+      <button className="secondary-button" onClick={onBack} type="button">
+        Back to projects
+      </button>
+      <div className="mt-5 grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+        <form className="surface-muted p-5" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
+          <p className="eyebrow">Project Setup</p>
+          <h2 className="section-title mt-3">Create a new workspace</h2>
+          <label className="mt-5 block text-sm font-semibold text-slate-900">Project name<input className="input-field" name="name" onChange={onChange} required value={form.name} /></label>
+          <label className="mt-4 block text-sm font-semibold text-slate-900">Client email<input className="input-field" name="clientEmail" onChange={onChange} type="email" value={form.clientEmail} /></label>
+          <label className="mt-4 block text-sm font-semibold text-slate-900">Status<select className="input-field" name="status" onChange={onChange} value={form.status}><option value="planned">Planned</option><option value="active">Active</option><option value="completed">Completed</option></select></label>
+          <label className="mt-4 block text-sm font-semibold text-slate-900">Description<textarea className="input-field min-h-28" name="description" onChange={onChange} value={form.description} /></label>
+          <button className="primary-button mt-5 w-full" disabled={loading} type="submit">{loading ? "Saving..." : "Create project"}</button>
+        </form>
+
+        <section className="surface-muted p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="eyebrow">Planning</p>
+              <h2 className="section-title mt-3">Phases, sprints, and planned items</h2>
+            </div>
+            <button className="secondary-button" onClick={onAddPhase} type="button">Add phase</button>
+          </div>
+          <div className="mt-5 space-y-4">
+            {form.planning.map((phase, phaseIndex) => (
+              <article className="surface-card p-4" key={`phase-${phaseIndex}`}>
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="font-semibold text-slate-900">Phase {phaseIndex + 1}</h3>
+                  <button className="secondary-button px-3 py-2" onClick={() => onRemovePhase(phaseIndex)} type="button">Remove</button>
+                </div>
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  <input className="input-field mt-0" placeholder="Phase name" value={phase.name} onChange={(event) => onPhaseChange(phaseIndex, "name", event.target.value)} />
+                  <input className="input-field mt-0" type="date" value={phase.startDate} onChange={(event) => onPhaseChange(phaseIndex, "startDate", event.target.value)} />
+                  <input className="input-field mt-0" type="date" value={phase.endDate} onChange={(event) => onPhaseChange(phaseIndex, "endDate", event.target.value)} />
+                  <textarea className="input-field mt-0 min-h-24 md:col-span-2" placeholder="Phase outcome" value={phase.outcome} onChange={(event) => onPhaseChange(phaseIndex, "outcome", event.target.value)} />
+                </div>
+
+                <div className="mt-4 flex items-center justify-between gap-3">
+                  <h4 className="font-semibold text-slate-900">Sprints</h4>
+                  <button className="secondary-button px-3 py-2" onClick={() => onAddSprint(phaseIndex)} type="button">Add sprint</button>
+                </div>
+                <div className="mt-4 space-y-3">
+                  {phase.sprints.map((sprint, sprintIndex) => (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4" key={`sprint-${phaseIndex}-${sprintIndex}`}>
+                      <div className="flex items-center justify-between gap-3">
+                        <h5 className="font-semibold text-slate-900">Sprint {sprintIndex + 1}</h5>
+                        <button className="secondary-button px-3 py-2" onClick={() => onRemoveSprint(phaseIndex, sprintIndex)} type="button">Remove</button>
+                      </div>
+                      <div className="mt-4 grid gap-3 md:grid-cols-2">
+                        <input className="input-field mt-0" placeholder="Sprint name" value={sprint.name} onChange={(event) => onSprintChange(phaseIndex, sprintIndex, "name", event.target.value)} />
+                        <input className="input-field mt-0" type="date" value={sprint.startDate} onChange={(event) => onSprintChange(phaseIndex, sprintIndex, "startDate", event.target.value)} />
+                        <input className="input-field mt-0" type="date" value={sprint.endDate} onChange={(event) => onSprintChange(phaseIndex, sprintIndex, "endDate", event.target.value)} />
+                        <textarea className="input-field mt-0 min-h-24 md:col-span-2" placeholder="Sprint outcome" value={sprint.outcome} onChange={(event) => onSprintChange(phaseIndex, sprintIndex, "outcome", event.target.value)} />
+                      </div>
+                      <div className="mt-4 flex items-center justify-between gap-3">
+                        <h6 className="font-semibold text-slate-900">Planned items</h6>
+                        <button className="secondary-button px-3 py-2" onClick={() => onAddTicket(phaseIndex, sprintIndex)} type="button">Add item</button>
+                      </div>
+                      <div className="mt-4 space-y-3">
+                        {sprint.tickets.map((ticket, ticketIndex) => (
+                          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4" key={`ticket-${phaseIndex}-${sprintIndex}-${ticketIndex}`}>
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="font-semibold text-slate-900">Item {ticketIndex + 1}</p>
+                              <button className="secondary-button px-3 py-2" onClick={() => onRemoveTicket(phaseIndex, sprintIndex, ticketIndex)} type="button">Remove</button>
+                            </div>
+                            <input className="input-field mt-3" placeholder="Item title" value={ticket.title} onChange={(event) => onTicketChange(phaseIndex, sprintIndex, ticketIndex, "title", event.target.value)} />
+                            <textarea className="input-field min-h-20" placeholder="Planned outcome" value={ticket.outcome} onChange={(event) => onTicketChange(phaseIndex, sprintIndex, ticketIndex, "outcome", event.target.value)} />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            ))}
+            {!form.planning.length ? <EmptyState copy="No planning yet. Add your first phase to define delivery." /> : null}
+          </div>
+        </section>
+      </div>
+    </section>
   );
 }
 
@@ -1274,389 +1559,314 @@ function ProjectDetailPage({
   tickets,
 }) {
   if (!project) {
-    return <p className="mt-8 rounded-lg border border-[#d8dde5] bg-white p-5 text-sm text-[#5c6673]">Loading project...</p>;
+    return <section className="surface-card mt-6 p-6 text-sm text-slate-500">Loading project...</section>;
   }
 
-  const sprintOptions = (project.planning || []).flatMap((phase, phaseIndex) =>
-    (phase.sprints || []).map((sprint, sprintIndex) => ({
-      value: `${phaseIndex}:${sprintIndex}`,
-      label: `${phase.name || `Phase ${phaseIndex + 1}`} -> ${sprint.name || `Sprint ${sprintIndex + 1}`}`,
-    })),
-  );
-  const ticketsBySprint = tickets.reduce((groups, ticket) => {
-    const key = ticket.sprint?.phaseName && ticket.sprint?.sprintName ? `${ticket.sprint.phaseName} -> ${ticket.sprint.sprintName}` : "Unassigned sprint";
-    groups[key] = groups[key] || [];
-    groups[key].push(ticket);
-    return groups;
-  }, {});
+  const boardColumns = [
+    { key: "open", label: "Backlog" },
+    { key: "to_do", label: "To Do" },
+    { key: "in_progress", label: "In Progress" },
+    { key: "in_review", label: "In Review" },
+    { key: "done", label: "Done" },
+  ];
 
   return (
-    <div className="mt-8 grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
-      <section className="rounded-lg border border-[#d8dde5] bg-white p-5 shadow-sm">
-        <button className="rounded-md border border-[#c7ced8] px-3 py-1 text-sm font-semibold" onClick={onBack} type="button">
-          Back
-        </button>
-        <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h2 className="text-2xl font-semibold">{project.name}</h2>
-            <p className="mt-1 text-sm text-[#5c6673]">{project.description || "No project description"}</p>
-          </div>
-          <StatusBadge status={project.status} />
-        </div>
-
-        <dl className="mt-6 grid gap-3 text-sm text-[#5c6673] sm:grid-cols-2">
-          <MetaItem label="Client email" value={project.clientEmail || "-"} />
-          <MetaItem label="Assigned members" value={String(selectedMembers.length)} />
-          <MetaItem label="Tickets" value={String(tickets.length)} />
-          <MetaItem label="Planning phases" value={String(project.planning?.length || 0)} />
-          <MetaItem label="Planned tickets" value={String(countPlannedTickets(project.planning))} />
-          <MetaItem label="Created" value={formatDate(project.createdAt)} />
-        </dl>
-
-        <div className="mt-6">
-          <h3 className="font-semibold">Project planning</h3>
-          <div className="mt-3 space-y-4">
-            {(project.planning || []).map((phase, phaseIndex) => (
-              <article className="rounded-lg border border-[#edf0f4] bg-[#fbfcfd] p-4" key={`${phase.name}-${phaseIndex}`}>
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <h4 className="font-semibold">{phase.name || `Phase ${phaseIndex + 1}`}</h4>
-                    <p className="mt-1 text-sm text-[#5c6673]">
-                      {formatTimeline(phase.startDate, phase.endDate)}
-                    </p>
-                  </div>
-                  <span className="rounded-md bg-[#eef1f5] px-3 py-1 text-xs font-semibold text-[#414c5a]">
-                    {phase.sprints?.length || 0} sprints
-                  </span>
-                </div>
-                <p className="mt-3 text-sm text-[#5c6673]">{phase.outcome || "No phase outcome defined."}</p>
-                <div className="mt-3 rounded-md border border-[#e4e9f0] bg-white px-3 py-2 text-sm">
-                  <span className="font-semibold text-[#414c5a]">Phase status:</span> <span className="capitalize text-[#5c6673]">{(phase.status || "planned").replaceAll("_", " ")}</span>
-                </div>
-                <div className="mt-4 space-y-3">
-                  {(phase.sprints || []).map((sprint, sprintIndex) => (
-                    <div className="rounded-lg border border-[#e4e9f0] bg-white p-3" key={`${sprint.name}-${sprintIndex}`}>
-                      <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                          <p className="font-semibold">{sprint.name || `Sprint ${sprintIndex + 1}`}</p>
-                          <p className="text-sm text-[#5c6673]">{formatTimeline(sprint.startDate, sprint.endDate)}</p>
-                        </div>
-                        <span className="text-xs font-semibold uppercase tracking-[0.08em] text-[#7b8490]">
-                          {sprint.tickets?.length || 0} planned tickets
-                        </span>
-                      </div>
-                      <p className="mt-2 text-sm text-[#5c6673]">{sprint.outcome || "No sprint outcome defined."}</p>
-                      <label className="mt-3 block max-w-xs text-sm font-semibold">
-                        Sprint status
-                        <select
-                          className="mt-2 h-10 w-full rounded-md border border-[#c7ced8] px-3 outline-none focus:border-[#6b4f1d] focus:ring-2 focus:ring-[#6b4f1d]/20"
-                          disabled={loading}
-                          onChange={(event) => onSprintStatusChange(phaseIndex, sprintIndex, event.target.value)}
-                          value={sprint.status || "planned"}
-                        >
-                          <option value="planned">Planned</option>
-                          <option value="in_progress">In progress</option>
-                          <option value="completed">Completed</option>
-                        </select>
-                      </label>
-                      <ul className="mt-3 space-y-2">
-                        {(sprint.tickets || []).map((ticket, ticketIndex) => (
-                          <li className="rounded-md bg-[#f6f8fb] px-3 py-2 text-sm text-[#5c6673]" key={`${ticket.title}-${ticketIndex}`}>
-                            <strong className="block text-[#151b20]">{ticket.title || `Planned ticket ${ticketIndex + 1}`}</strong>
-                            <span>{ticket.outcome || "No ticket outcome defined."}</span>
-                          </li>
-                        ))}
-                        {!sprint.tickets?.length ? <li className="text-sm text-[#5c6673]">No planned tickets.</li> : null}
-                      </ul>
-                    </div>
-                  ))}
-                </div>
-              </article>
-            ))}
-            {!project.planning?.length ? <p className="text-sm text-[#5c6673]">No project planning added yet.</p> : null}
-          </div>
-        </div>
-
-        <div className="mt-6">
-          <h3 className="font-semibold">Assigned members</h3>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {selectedMembers.map((member) => (
-              <button className="rounded-md bg-[#eef1f5] px-3 py-1 text-sm font-semibold text-[#414c5a]" key={member._id} onClick={() => onToggleMember(member._id)} type="button">
-                {member.name} x
-              </button>
-            ))}
-            {!selectedMembers.length ? <span className="text-sm text-[#5c6673]">No members selected.</span> : null}
-          </div>
-        </div>
-
-        <div className="mt-6">
-          <label className="block text-sm font-semibold" htmlFor="memberSearch">
-            Search members
-            <input className="mt-2 h-11 w-full rounded-md border border-[#c7ced8] px-3 outline-none focus:border-[#6b4f1d] focus:ring-2 focus:ring-[#6b4f1d]/20" id="memberSearch" onChange={(event) => onSearchMembers(event.target.value)} placeholder="Name or email" value={memberSearch} />
-          </label>
-          <div className="mt-3 max-h-80 overflow-y-auto rounded-lg border border-[#edf0f4]">
-            {searchedMembers.map((member) => (
-              <button className="flex w-full items-center justify-between gap-3 border-b border-[#edf0f4] px-3 py-3 text-left last:border-b-0" key={member._id} onClick={() => onToggleMember(member._id)} type="button">
-                <span>
-                  <strong className="block">{member.name}</strong>
-                  <span className="text-sm text-[#5c6673]">{member.email}</span>
-                </span>
-                <span className={`rounded-md px-2 py-1 text-xs font-semibold ${selectedMemberIds.includes(member._id) ? "bg-[#e8f5eb] text-[#1b6b3a]" : "bg-[#eef1f5] text-[#414c5a]"}`}>
-                  {selectedMemberIds.includes(member._id) ? "Selected" : "Add"}
-                </span>
-              </button>
-            ))}
-            {!searchedMembers.length ? <p className="p-4 text-sm text-[#5c6673]">No active members found.</p> : null}
-          </div>
-        </div>
-
-        <button className="mt-5 h-11 rounded-md bg-[#6b4f1d] px-4 text-sm font-semibold text-white disabled:opacity-60" disabled={loading} onClick={onSaveMembers} type="button">
-          {loading ? "Saving..." : "Save members"}
-        </button>
-      </section>
-
-      <section className="rounded-lg border border-[#d8dde5] bg-white p-5 shadow-sm">
-        <div className="flex items-center justify-between gap-3">
-          <h3 className="text-xl font-semibold">Tickets</h3>
-          <p className="text-sm text-[#5c6673]">{tickets.length} total</p>
-        </div>
-        <div className="mt-4 rounded-lg border border-[#edf0f4] bg-[#fbfcfd] p-4">
-          <h4 className="font-semibold">Raise ticket</h4>
-          <p className="mt-1 text-sm text-[#5c6673]">Create a project ticket and assign it to a selected member.</p>
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
-            <label className="block text-sm font-semibold" htmlFor="adminTicketTitle">
-              Title
-              <input className="mt-2 h-11 w-full rounded-md border border-[#c7ced8] px-3 outline-none focus:border-[#6b4f1d] focus:ring-2 focus:ring-[#6b4f1d]/20" id="adminTicketTitle" name="title" onChange={onTicketFormChange} value={adminTicketForm.title} />
-            </label>
-            <label className="block text-sm font-semibold" htmlFor="adminTicketDeadline">
-              Deadline
-              <input className="mt-2 h-11 w-full rounded-md border border-[#c7ced8] px-3 outline-none focus:border-[#6b4f1d] focus:ring-2 focus:ring-[#6b4f1d]/20" id="adminTicketDeadline" name="deadline" onChange={onTicketFormChange} type="date" value={adminTicketForm.deadline} />
-            </label>
-            <label className="block text-sm font-semibold" htmlFor="adminTicketAssignedTo">
-              Assign to member
-              <select className="mt-2 h-11 w-full rounded-md border border-[#c7ced8] px-3 outline-none focus:border-[#6b4f1d] focus:ring-2 focus:ring-[#6b4f1d]/20" id="adminTicketAssignedTo" name="assignedTo" onChange={onTicketFormChange} value={adminTicketForm.assignedTo}>
-                <option value="">Select member</option>
-                {(project.members || []).map((member) => (
-                  <option key={member._id} value={member._id}>
-                    {member.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block text-sm font-semibold" htmlFor="adminTicketStatus">
-              Status
-              <select className="mt-2 h-11 w-full rounded-md border border-[#c7ced8] px-3 outline-none focus:border-[#6b4f1d] focus:ring-2 focus:ring-[#6b4f1d]/20" id="adminTicketStatus" name="status" onChange={onTicketFormChange} value={adminTicketForm.status}>
-                <option value="open">Open</option>
-                <option value="in_progress">In progress</option>
-                <option value="resolved">Resolved</option>
-              </select>
-            </label>
-            <label className="block text-sm font-semibold md:col-span-2" htmlFor="adminTicketSprint">
-              Sprint
-              <select className="mt-2 h-11 w-full rounded-md border border-[#c7ced8] px-3 outline-none focus:border-[#6b4f1d] focus:ring-2 focus:ring-[#6b4f1d]/20" id="adminTicketSprint" name="sprintSelection" onChange={onTicketFormChange} value={adminTicketForm.sprintSelection}>
-                <option value="">Select sprint</option>
-                {sprintOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <label className="mt-3 block text-sm font-semibold" htmlFor="adminTicketDescription">
-            Description
-            <textarea className="mt-2 min-h-24 w-full rounded-md border border-[#c7ced8] px-3 py-2 outline-none focus:border-[#6b4f1d] focus:ring-2 focus:ring-[#6b4f1d]/20" id="adminTicketDescription" name="description" onChange={onTicketFormChange} value={adminTicketForm.description} />
-          </label>
-          <label className="mt-3 block text-sm font-semibold" htmlFor="adminTicketUrls">
-            URLs
-            <textarea className="mt-2 min-h-20 w-full rounded-md border border-[#c7ced8] px-3 py-2 outline-none focus:border-[#6b4f1d] focus:ring-2 focus:ring-[#6b4f1d]/20" id="adminTicketUrls" name="urlsText" onChange={onTicketFormChange} placeholder="One URL per line" value={adminTicketForm.urlsText} />
-          </label>
-          <button className="mt-4 h-11 rounded-md bg-[#243c5a] px-4 text-sm font-semibold text-white disabled:opacity-60" disabled={loading || !adminTicketForm.title || !adminTicketForm.assignedTo || !adminTicketForm.deadline || !adminTicketForm.sprintSelection} onClick={onCreateTicket} type="button">
-            {loading ? "Creating..." : "Raise ticket"}
-          </button>
-        </div>
-        <div className="mt-4 rounded-lg border border-[#edf0f4] bg-[#fbfcfd] p-4">
-          <h4 className="font-semibold">Sprint-wise tickets</h4>
-          <div className="mt-3 space-y-2">
-            {Object.entries(ticketsBySprint).map(([sprintLabel, sprintTickets]) => (
-              <div className="flex items-center justify-between rounded-md border border-[#e4e9f0] bg-white px-3 py-3 text-sm" key={sprintLabel}>
-                <span className="font-semibold text-[#414c5a]">{sprintLabel}</span>
-                <span className="text-[#5c6673]">{sprintTickets.length} tickets</span>
-              </div>
-            ))}
-            {!Object.keys(ticketsBySprint).length ? <p className="text-sm text-[#5c6673]">No tickets raised yet.</p> : null}
-          </div>
-        </div>
-        <div className="mt-4 divide-y divide-[#edf0f4]">
-          {tickets.map((ticket) => (
-            <article className="py-4" key={ticket._id}>
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h4 className="font-semibold">{ticket.title}</h4>
-                  <p className="text-sm text-[#5c6673]">Assigned to {ticket.assignedTo?.name || "member"}</p>
-                  <p className="mt-1 text-sm text-[#5c6673]">Sprint {ticket.sprint?.phaseName ? `${ticket.sprint.phaseName} -> ${ticket.sprint.sprintName}` : "Not set"}</p>
-                  <p className="mt-1 text-sm text-[#5c6673]">Created by {ticket.createdBy?.name || ticket.createdByAdmin?.name || "admin"}</p>
-                  <p className="mt-1 text-sm text-[#5c6673]">Deadline {formatDate(ticket.deadline)}</p>
-                </div>
-                <StatusBadge status={ticket.status} />
-              </div>
-            </article>
-          ))}
-          {!tickets.length ? <p className="py-8 text-sm text-[#5c6673]">No tickets raised yet.</p> : null}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function FormPage({ children, onBack, onSubmit, title }) {
-  return (
-    <form
-      className="mt-8 max-w-2xl rounded-lg border border-[#d8dde5] bg-white p-5 shadow-sm"
-      onSubmit={(event) => {
-        event.preventDefault();
-        onSubmit();
-      }}
-    >
-      <button className="rounded-md border border-[#c7ced8] px-3 py-1 text-sm font-semibold" onClick={onBack} type="button">
-        Back
-      </button>
-      <h2 className="mt-5 text-2xl font-semibold">{title}</h2>
-      <div className="mt-5 space-y-4">{children}</div>
-    </form>
-  );
-}
-
-function formatTimeline(startDate, endDate) {
-  if (startDate && endDate) {
-    return `${formatDate(startDate)} to ${formatDate(endDate)}`;
-  }
-
-  if (startDate) {
-    return `Starts ${formatDate(startDate)}`;
-  }
-
-  if (endDate) {
-    return `Ends ${formatDate(endDate)}`;
-  }
-
-  return "Timeline not set";
-}
-
-function ProjectPlanningEditor({
-  planning,
-  onAddPhase,
-  onAddSprint,
-  onAddTicket,
-  onPhaseChange,
-  onRemovePhase,
-  onRemoveSprint,
-  onRemoveTicket,
-  onSprintChange,
-  onTicketChange,
-}) {
-  return (
-    <section className="rounded-xl border border-[#d8dde5] bg-[#fbfcfd] p-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <section className="surface-card mt-6 p-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h3 className="text-lg font-semibold">Project planning</h3>
-          <p className="mt-1 text-sm text-[#5c6673]">
-            Define phases, sprint windows, expected outcomes, and planned tickets before delivery begins.
-          </p>
+          <button className="secondary-button" onClick={onBack} type="button">Back to projects</button>
+          <p className="eyebrow mt-5">Project Workspace</p>
+          <h2 className="section-title mt-3">{project.name}</h2>
+          <p className="muted-text mt-3 max-w-3xl text-sm leading-6">{project.description || "No project description provided."}</p>
         </div>
-        <button className="rounded-md bg-[#243c5a] px-4 py-2 text-sm font-semibold text-white" onClick={onAddPhase} type="button">
-          Add phase
-        </button>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <CompactStat label="Client" value={project.clientEmail || "-"} />
+          <CompactStat label="Progress" value={`${percentComplete(project)}%`} />
+          <CompactStat label="Members" value={project.members?.length || 0} />
+          <CompactStat label="Planned" value={countPlannedTickets(project.planning)} />
+        </div>
       </div>
 
-      <div className="mt-4 space-y-4">
-        {planning.map((phase, phaseIndex) => (
-          <article className="rounded-xl border border-[#d8dde5] bg-white p-4" key={`phase-${phaseIndex}`}>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <h4 className="text-base font-semibold">Phase {phaseIndex + 1}</h4>
-              <button className="rounded-md border border-[#c7ced8] px-3 py-2 text-sm font-semibold text-[#414c5a]" onClick={() => onRemovePhase(phaseIndex)} type="button">
-                Remove phase
-              </button>
+      <div className="mt-6 grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <div className="space-y-6">
+          <section className="surface-muted p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Issue detail style project summary</h3>
+                <p className="muted-text mt-2 text-sm">Two-column project view with planning, collaboration, and metadata controls.</p>
+              </div>
+              <StatusBadge status={project.status} />
             </div>
 
-            <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <TextField label="Phase name" name={`phase-name-${phaseIndex}`} onChange={(event) => onPhaseChange(phaseIndex, "name", event.target.value)} value={phase.name} />
-              <TextField label="Expected outcome" name={`phase-outcome-${phaseIndex}`} onChange={(event) => onPhaseChange(phaseIndex, "outcome", event.target.value)} value={phase.outcome} />
-              <TextField label="Start date" name={`phase-start-${phaseIndex}`} onChange={(event) => onPhaseChange(phaseIndex, "startDate", event.target.value)} type="date" value={phase.startDate} />
-              <TextField label="End date" name={`phase-end-${phaseIndex}`} onChange={(event) => onPhaseChange(phaseIndex, "endDate", event.target.value)} type="date" value={phase.endDate} />
-            </div>
-
-            <div className="mt-5 flex items-center justify-between gap-3">
-              <h5 className="font-semibold">Sprints</h5>
-              <button className="rounded-md bg-[#2f6f5e] px-3 py-2 text-sm font-semibold text-white" onClick={() => onAddSprint(phaseIndex)} type="button">
-                Add sprint
-              </button>
-            </div>
-
-            <div className="mt-3 space-y-4">
-              {phase.sprints.map((sprint, sprintIndex) => (
-                <div className="rounded-lg border border-[#e4e9f0] bg-[#fbfcfe] p-4" key={`phase-${phaseIndex}-sprint-${sprintIndex}`}>
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <h6 className="font-semibold">Sprint {sprintIndex + 1}</h6>
-                    <button className="rounded-md border border-[#c7ced8] px-3 py-2 text-sm font-semibold text-[#414c5a]" onClick={() => onRemoveSprint(phaseIndex, sprintIndex)} type="button">
-                      Remove sprint
-                    </button>
+            <div className="mt-5 space-y-4">
+              {(project.planning || []).map((phase, phaseIndex) => (
+                <article className="surface-card p-4" key={`${project._id}-${phaseIndex}`}>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Phase {phaseIndex + 1}</p>
+                      <h4 className="mt-2 font-semibold text-slate-900">{phase.name || `Phase ${phaseIndex + 1}`}</h4>
+                    </div>
+                    <span className="badge badge-info">{formatDate(phase.endDate)}</span>
                   </div>
-
-                  <div className="mt-4 grid gap-4 md:grid-cols-2">
-                    <TextField label="Sprint name" name={`sprint-name-${phaseIndex}-${sprintIndex}`} onChange={(event) => onSprintChange(phaseIndex, sprintIndex, "name", event.target.value)} value={sprint.name} />
-                    <TextField label="Sprint outcome" name={`sprint-outcome-${phaseIndex}-${sprintIndex}`} onChange={(event) => onSprintChange(phaseIndex, sprintIndex, "outcome", event.target.value)} value={sprint.outcome} />
-                    <TextField label="Start date" name={`sprint-start-${phaseIndex}-${sprintIndex}`} onChange={(event) => onSprintChange(phaseIndex, sprintIndex, "startDate", event.target.value)} type="date" value={sprint.startDate} />
-                    <TextField label="End date" name={`sprint-end-${phaseIndex}-${sprintIndex}`} onChange={(event) => onSprintChange(phaseIndex, sprintIndex, "endDate", event.target.value)} type="date" value={sprint.endDate} />
-                  </div>
-
-                  <div className="mt-5 flex items-center justify-between gap-3">
-                    <p className="font-semibold">Planned tickets</p>
-                    <button className="rounded-md bg-[#6b4f1d] px-3 py-2 text-sm font-semibold text-white" onClick={() => onAddTicket(phaseIndex, sprintIndex)} type="button">
-                      Add ticket
-                    </button>
-                  </div>
-
-                  <div className="mt-3 space-y-3">
-                    {sprint.tickets.map((ticket, ticketIndex) => (
-                      <div className="rounded-lg border border-[#edf0f4] bg-white p-3" key={`phase-${phaseIndex}-sprint-${sprintIndex}-ticket-${ticketIndex}`}>
-                        <div className="flex justify-end">
-                          <button className="rounded-md border border-[#c7ced8] px-3 py-2 text-sm font-semibold text-[#414c5a]" onClick={() => onRemoveTicket(phaseIndex, sprintIndex, ticketIndex)} type="button">
-                            Remove ticket
-                          </button>
-                        </div>
-                        <div className="mt-3 grid gap-4 md:grid-cols-2">
-                          <TextField label="Ticket title" name={`ticket-title-${phaseIndex}-${sprintIndex}-${ticketIndex}`} onChange={(event) => onTicketChange(phaseIndex, sprintIndex, ticketIndex, "title", event.target.value)} value={ticket.title} />
-                          <TextField label="Expected outcome" name={`ticket-outcome-${phaseIndex}-${sprintIndex}-${ticketIndex}`} onChange={(event) => onTicketChange(phaseIndex, sprintIndex, ticketIndex, "outcome", event.target.value)} value={ticket.outcome} />
+                  <p className="muted-text mt-3 text-sm">{phase.outcome || "No phase outcome defined."}</p>
+                  <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                    {(phase.sprints || []).map((sprint, sprintIndex) => (
+                      <div className="rounded-xl border border-slate-200 bg-white p-4" key={`${phaseIndex}-${sprintIndex}`}>
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="font-semibold text-slate-900">{sprint.name || `Sprint ${sprintIndex + 1}`}</p>
+                            <p className="muted-text mt-1 text-sm">{sprint.outcome || "No sprint outcome defined."}</p>
+                          </div>
+                          <select className="input-field mt-0 w-auto min-w-[150px]" onChange={(event) => onSprintStatusChange(phaseIndex, sprintIndex, event.target.value)} value={sprint.status || "planned"}>
+                            <option value="planned">Planned</option>
+                            <option value="active">Active</option>
+                            <option value="completed">Completed</option>
+                          </select>
                         </div>
                       </div>
                     ))}
                   </div>
-                </div>
+                </article>
               ))}
             </div>
-          </article>
-        ))}
-        {!planning.length ? <p className="text-sm text-[#5c6673]">No planning added yet. Add a phase to start structuring the project.</p> : null}
+          </section>
+
+          <section className="surface-muted p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Board</h3>
+                <p className="muted-text mt-2 text-sm">Task cards are styled as draggable-ready items.</p>
+              </div>
+              <span className="glass-chip">{tickets.length}</span>
+            </div>
+            <div className="board-scroll mt-5">
+              <div className="board-grid">
+                {boardColumns.map((column) => {
+                  const columnItems = tickets.filter((ticket) => {
+                    const normalized = (ticket.status || "").toLowerCase();
+                    if (column.key === "open") {
+                      return ["open", "planned"].includes(normalized);
+                    }
+                    if (column.key === "to_do") {
+                      return ["to_do"].includes(normalized);
+                    }
+                    if (column.key === "in_progress") {
+                      return ["in_progress", "active"].includes(normalized);
+                    }
+                    if (column.key === "in_review") {
+                      return ["in_review", "review"].includes(normalized);
+                    }
+                    return ["done", "resolved", "completed"].includes(normalized);
+                  });
+
+                  return (
+                    <div className="kanban-column" key={column.key}>
+                      <div className="flex items-center justify-between">
+                        <h4 className="font-semibold text-slate-900">{column.label}</h4>
+                        <span className="glass-chip">{columnItems.length}</span>
+                      </div>
+                      <div className="mt-4 space-y-3">
+                        {columnItems.map((ticket) => (
+                          <article className="task-card" key={ticket._id}>
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="font-semibold text-slate-900">{ticket.title}</p>
+                                <p className="muted-text mt-1 text-sm">{ticket.description || "No description provided."}</p>
+                              </div>
+                              <span className={`badge ${getPriorityFromTicket(ticket) === "High" ? "badge-danger" : getPriorityFromTicket(ticket) === "Medium" ? "badge-warning" : "badge-info"}`}>
+                                {getPriorityFromTicket(ticket)}
+                              </span>
+                            </div>
+                            <div className="mt-4 flex items-center justify-between gap-3">
+                              <span className="badge badge-primary">{normalizeStatus(ticket.status)}</span>
+                              <span className="avatar-badge">{getInitials(ticket.assignedTo?.name || ticket.assignedTo?.email)}</span>
+                            </div>
+                            <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
+                              <span>{ticket.assignedTo?.name || ticket.assignedTo?.email || "Unassigned"}</span>
+                              <span>{formatDate(ticket.deadline)}</span>
+                            </div>
+                          </article>
+                        ))}
+                        {!columnItems.length ? <div className="surface-muted p-4 text-sm text-slate-500">No items here.</div> : null}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <aside className="space-y-6">
+          <section className="surface-muted p-5">
+            <h3 className="text-lg font-semibold text-slate-900">Metadata panel</h3>
+            <div className="mt-4 space-y-3">
+              <InfoRow label="Project status" value={normalizeStatus(project.status)} />
+              <InfoRow label="Client" value={project.clientEmail || "Not assigned"} />
+              <InfoRow label="Assigned members" value={project.members?.length || 0} />
+              <InfoRow label="Project tickets" value={tickets.length} />
+            </div>
+          </section>
+
+          <section className="surface-muted p-5">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-lg font-semibold text-slate-900">Team collaboration</h3>
+              <button className="secondary-button" onClick={onSaveMembers} type="button">Save team</button>
+            </div>
+            <input className="input-field mt-4" onChange={(event) => onSearchMembers(event.target.value)} placeholder="Search active members" value={memberSearch} />
+            <div className="mt-4 space-y-3">
+              {searchedMembers.map((member) => (
+                <button className="surface-card flex w-full items-center justify-between gap-3 p-4 text-left" key={member._id} onClick={() => onToggleMember(member._id)} type="button">
+                  <div className="flex items-center gap-3">
+                    <span className="avatar-badge">{getInitials(member.name)}</span>
+                    <div>
+                      <p className="font-semibold text-slate-900">{member.name}</p>
+                      <p className="muted-text text-sm">{member.email}</p>
+                    </div>
+                  </div>
+                  <span className={`badge ${selectedMemberIds.includes(member._id) ? "badge-primary" : "badge-info"}`}>
+                    {selectedMemberIds.includes(member._id) ? "Assigned" : "Add"}
+                  </span>
+                </button>
+              ))}
+            </div>
+            {selectedMembers.length ? (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {selectedMembers.map((member) => (
+                  <span className="glass-chip" key={member._id}>{member.name}</span>
+                ))}
+              </div>
+            ) : null}
+          </section>
+
+          <section className="surface-muted p-5">
+            <h3 className="text-lg font-semibold text-slate-900">Create project issue</h3>
+            <label className="mt-4 block text-sm font-semibold text-slate-900">Title<input className="input-field" name="title" onChange={onTicketFormChange} value={adminTicketForm.title} /></label>
+            <label className="mt-4 block text-sm font-semibold text-slate-900">Description<textarea className="input-field min-h-24" name="description" onChange={onTicketFormChange} value={adminTicketForm.description} /></label>
+            <label className="mt-4 block text-sm font-semibold text-slate-900">Assignee<select className="input-field" name="assignedTo" onChange={onTicketFormChange} value={adminTicketForm.assignedTo}><option value="">Select member</option>{(project.members || []).map((member) => <option key={member._id} value={member._id}>{member.name}</option>)}</select></label>
+            <label className="mt-4 block text-sm font-semibold text-slate-900">Due date<input className="input-field" name="deadline" onChange={onTicketFormChange} type="date" value={adminTicketForm.deadline} /></label>
+            <label className="mt-4 block text-sm font-semibold text-slate-900">Status<select className="input-field" name="status" onChange={onTicketFormChange} value={adminTicketForm.status}><option value="open">Open</option><option value="to_do">To Do</option><option value="in_progress">In Progress</option><option value="in_review">In Review</option><option value="done">Done</option></select></label>
+            <label className="mt-4 block text-sm font-semibold text-slate-900">Sprint<select className="input-field" name="sprintSelection" onChange={onTicketFormChange} value={adminTicketForm.sprintSelection}><option value="">Select sprint</option>{(project.planning || []).flatMap((phase, phaseIndex) => (phase.sprints || []).map((sprint, sprintIndex) => <option key={`${phaseIndex}-${sprintIndex}`} value={`${phaseIndex}:${sprintIndex}`}>{`${phase.name || `Phase ${phaseIndex + 1}`} / ${sprint.name || `Sprint ${sprintIndex + 1}`}`}</option>))}</select></label>
+            <label className="mt-4 block text-sm font-semibold text-slate-900">Links<textarea className="input-field min-h-20" name="urlsText" onChange={onTicketFormChange} placeholder="One link per line" value={adminTicketForm.urlsText} /></label>
+            <button className="primary-button mt-5 w-full" disabled={loading} onClick={onCreateTicket} type="button">{loading ? "Saving..." : "Create ticket"}</button>
+          </section>
+        </aside>
       </div>
     </section>
   );
 }
 
-function TextField({ label, name, onChange, required = false, type = "text", value }) {
+function FormPage({ children, description, loading, onBack, onSubmit, submitLabel, title }) {
   return (
-    <label className="block text-sm font-semibold" htmlFor={name}>
-      {label}
-      <input className="mt-2 h-12 w-full rounded-md border border-[#c7ced8] px-3 outline-none focus:border-[#6b4f1d] focus:ring-2 focus:ring-[#6b4f1d]/20" id={name} name={name} onChange={onChange} required={required} type={type} value={value} />
-    </label>
+    <section className="surface-card mt-6 p-6">
+      <button className="secondary-button" onClick={onBack} type="button">Back</button>
+      <form className="surface-muted mt-5 grid gap-4 p-5" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
+        <p className="eyebrow">{title}</p>
+        <h2 className="section-title">{title}</h2>
+        <p className="muted-text text-sm">{description}</p>
+        {children}
+        <button className="primary-button mt-2 w-full" disabled={loading} type="submit">{loading ? "Saving..." : submitLabel}</button>
+      </form>
+    </section>
   );
 }
 
-function SubmitButton({ label, loading }) {
+function MetricCard({ label, note, onClick, value }) {
+  const Tag = onClick ? "button" : "article";
   return (
-    <button className="h-12 w-full rounded-md bg-[#6b4f1d] font-semibold text-white transition hover:bg-[#563f16] disabled:cursor-not-allowed disabled:opacity-60" disabled={loading} type="submit">
-      {loading ? "Saving..." : label}
-    </button>
+    <Tag className={`metric-card w-full text-left ${onClick ? "cursor-pointer hover:border-violet-200 hover:shadow-md" : ""}`} onClick={onClick} type={onClick ? "button" : undefined}>
+      <p className="muted-text text-sm font-semibold">{label}</p>
+      <strong className="metric-value">{value}</strong>
+      <p className="muted-text mt-2 text-sm">{note}</p>
+    </Tag>
+  );
+}
+
+function CompactStat({ label, onClick, value }) {
+  const Tag = onClick ? "button" : "div";
+  return (
+    <Tag className={`surface-card w-full p-4 text-left ${onClick ? "cursor-pointer hover:border-violet-200 hover:shadow-md" : ""}`} onClick={onClick} type={onClick ? "button" : undefined}>
+      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
+      <p className="mt-2 text-sm font-semibold text-slate-900">{value}</p>
+    </Tag>
+  );
+}
+
+function QuickTable({ columns, onClick, rows, title }) {
+  function resolveValue(row, key) {
+    return key.split(".").reduce((acc, part) => acc?.[part], row) || "-";
+  }
+
+  return (
+    <section className={`surface-card p-6 ${onClick ? "cursor-pointer hover:border-violet-200 hover:shadow-md" : ""}`} onClick={onClick}>
+      <p className="eyebrow">{title}</p>
+      <h2 className="section-title mt-3 text-xl">{title}</h2>
+      <div className="table-shell mt-5">
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                {columns.map(([label]) => (
+                  <th key={label}>{label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row._id}>
+                  {columns.map(([label, key]) => (
+                    <td key={label}>{resolveValue(row, key)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SettingRow({ label, value }) {
+  return (
+    <div className="surface-muted flex items-center justify-between gap-3 p-4">
+      <span className="font-semibold text-slate-900">{label}</span>
+      <span className="muted-text text-sm">{value}</span>
+    </div>
+  );
+}
+
+function InfoRow({ label, value }) {
+  return (
+    <div className="surface-card flex items-center justify-between gap-3 p-4">
+      <span className="text-sm font-semibold text-slate-900">{label}</span>
+      <span className="muted-text text-sm text-right">{value}</span>
+    </div>
+  );
+}
+
+function StatusBadge({ status }) {
+  const normalized = (status || "planned").toLowerCase();
+  const className =
+    normalized === "active" || normalized === "in_progress"
+      ? "badge badge-info"
+      : normalized === "completed" || normalized === "resolved" || normalized === "done"
+        ? "badge badge-success"
+        : normalized === "blocked"
+          ? "badge badge-danger"
+          : "badge badge-warning";
+
+  return <span className={className}>{normalizeStatus(status)}</span>;
+}
+
+function EmptyState({ copy }) {
+  return (
+    <div className="empty-state">
+      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-sm font-bold text-slate-600">
+        OD
+      </div>
+      <p className="mt-4 text-sm text-slate-700">{copy}</p>
+    </div>
   );
 }
 

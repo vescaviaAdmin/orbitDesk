@@ -24,19 +24,19 @@ function GetStarted() {
   }
 
   return (
-    <main className="grid min-h-screen place-items-center bg-[linear-gradient(180deg,#f7f8fb_0%,#edf2f7_100%)] px-5 py-8 text-[#161c24]">
-      <section className="w-full max-w-md rounded-[1.5rem] border border-[#d7dee8] bg-white p-6 shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#315c8f]">OrbitDesk Admin</p>
-        <h1 className="mt-3 text-3xl font-semibold">Get started</h1>
-        <p className="mt-2 text-sm leading-6 text-[#5b6677]">
+    <main className="app-shell grid place-items-center">
+      <section className="neo-panel w-full max-w-md p-6">
+        <p className="eyebrow">OrbitDesk Admin</p>
+        <h1 className="mt-3 text-3xl font-semibold text-white">Get started</h1>
+        <p className="muted-text mt-2 text-sm leading-6">
           Enter your admin email. We will send a password setup link so you can access your isolated workspace.
         </p>
 
         <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
-          <label className="block text-sm font-semibold text-[#253041]" htmlFor="email">
+          <label className="block text-sm font-semibold text-white" htmlFor="email">
             Work email
             <input
-              className="mt-2 h-11 w-full rounded-xl border border-[#c8d2e0] px-3 outline-none focus:border-[#315c8f] focus:ring-2 focus:ring-[#315c8f]/15"
+              className="neo-input"
               id="email"
               onChange={(event) => setEmail(event.target.value)}
               required
@@ -45,21 +45,17 @@ function GetStarted() {
             />
           </label>
 
-          {status ? <p className="rounded-xl bg-[#e9f5ee] px-3 py-2 text-sm text-[#17663c]">{status}</p> : null}
-          {error ? <p className="rounded-xl bg-[#fde8e3] px-3 py-2 text-sm text-[#9f2f1f]">{error}</p> : null}
+          {status ? <p className="status-success">{status}</p> : null}
+          {error ? <p className="status-error">{error}</p> : null}
 
-          <button
-            className="h-11 w-full rounded-xl bg-[#243c5a] text-sm font-semibold text-white transition hover:bg-[#1b3049] disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={loading}
-            type="submit"
-          >
+          <button className="neo-button h-11 w-full" disabled={loading} type="submit">
             {loading ? "Sending..." : "Send setup link"}
           </button>
         </form>
 
-        <div className="mt-5 flex items-center justify-between text-sm text-[#5b6677]">
+        <div className="muted-text mt-5 flex items-center justify-between text-sm">
           <span>Already active?</span>
-          <button className="font-semibold text-[#315c8f]" onClick={() => window.location.assign("/login")} type="button">
+          <button className="font-semibold text-cyan-300" onClick={() => window.location.assign("/login")} type="button">
             Login
           </button>
         </div>
