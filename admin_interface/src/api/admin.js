@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:5000").replace(/\/+$/, "");
 
 export function getAdminSession() {
   return JSON.parse(localStorage.getItem("orbitdesk_admin_session") || "{}");
