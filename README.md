@@ -201,6 +201,43 @@ Production notes:
 - `ALLOWED_ORIGINS` must contain the final client and admin URLs so browser requests reach the API.
 - Both static apps include SPA rewrites to `index.html`, which is required for paths like `/member/projects/:id` and `/set-password`.
 
+## 5. Deploy On Vercel
+
+Do not deploy the repo root as one Vercel project. This repository contains three separate apps:
+
+- `client/` for the member/client frontend
+- `admin_interface/` for the admin frontend
+- `server/` for the Fastify API
+
+Recommended setup:
+
+- Create one Vercel project with `Root Directory` set to `client`
+- Create another Vercel project with `Root Directory` set to `admin_interface`
+- Keep `server/` on a Node host such as Render, Railway, or VPS unless you explicitly refactor it for Vercel serverless deployment
+
+Both frontend apps now include `vercel.json` with an SPA rewrite to `index.html`, which prevents `Not Found` on direct URLs such as:
+
+- `/member/projects`
+- `/client/dashboard`
+- `/set-password`
+
+Set these environment variables in Vercel:
+
+### `client`
+
+```env
+VITE_API_URL=https://your-api-domain.example
+```
+
+### `admin_interface`
+
+```env
+VITE_API_URL=https://your-api-domain.example
+VITE_ADMIN_API_SECRET=change-this-admin-secret
+```
+
+If you still see `Not Found` after that, check that the Vercel project is pointed at `client/` or `admin_interface/` instead of the repository root.
+
 ## Notes
 
 - The client uses React + Vite + Tailwind CSS.
