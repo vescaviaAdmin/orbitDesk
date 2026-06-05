@@ -16,12 +16,39 @@ import {
   updateProjectMembers,
   updateSprintStatus,
 } from "../api/admin";
+import AppShell, { PageHeader, Sidebar, Topbar } from "../components/ui/AppShell";
+import { StatusBadge as SurfaceStatusBadge } from "../components/ui/Badges";
+import EmptyStatePanel from "../components/ui/EmptyState";
+import ClientCard from "../components/clients/ClientCard";
+import ClientOnboardingForm from "../components/clients/ClientOnboardingForm";
+import ProjectCard from "../components/projects/ProjectCard";
+import ProjectOnboardingForm from "../components/projects/ProjectOnboardingForm";
+import ProjectWorkspacePage from "../components/projects/ProjectWorkspacePage";
 
 const emptyForms = {
   client: { name: "", email: "", company: "", phone: "", agreement: null },
   member: { name: "", email: "" },
-  project: { name: "", clientEmail: "", status: "planned", description: "", planning: [] },
-  projectTicket: { title: "", description: "", assignedTo: "", deadline: "", sprintSelection: "", status: "open", urlsText: "" },
+  project: {
+    name: "",
+    clientEmail: "",
+    clientCompany: "",
+    status: "planned",
+    description: "",
+    repositoryUrl: "",
+    category: "",
+    planning: [],
+    memberIds: [],
+  },
+  projectTicket: {
+    title: "",
+    description: "",
+    assignedTo: "",
+    deadline: "",
+    status: "open",
+    priority: "medium",
+    type: "task",
+    urlsText: "",
+  },
 };
 
 function createPlanningTicket() {
@@ -91,6 +118,10 @@ function getInitials(value) {
 }
 
 function getPriorityFromTicket(ticket) {
+  if (ticket?.priority) {
+    return ticket.priority.charAt(0).toUpperCase() + ticket.priority.slice(1);
+  }
+
   const normalized = (ticket.status || "").toLowerCase();
   if (normalized === "blocked") {
     return "High";
@@ -132,6 +163,7 @@ function AdminDashboard() {
   const [projectTickets, setProjectTickets] = useState([]);
   const [selectedMemberIds, setSelectedMemberIds] = useState([]);
   const [memberSearch, setMemberSearch] = useState("");
+  const [projectMemberSearch, setProjectMemberSearch] = useState("");
   const [clientSearch, setClientSearch] = useState("");
   const [projectSearch, setProjectSearch] = useState("");
   const [memberDirectorySearch, setMemberDirectorySearch] = useState("");
@@ -287,10 +319,6 @@ function AdminDashboard() {
         projectTicket: {
           ...emptyForms.projectTicket,
           assignedTo: data.project.members?.[0]?._id || "",
-          sprintSelection:
-            data.project.planning?.flatMap((phase, phaseIndex) =>
-              (phase.sprints || []).map((_, sprintIndex) => `${phaseIndex}:${sprintIndex}`),
-            )[0] || "",
         },
       }));
     } catch (requestError) {
@@ -339,6 +367,19 @@ function AdminDashboard() {
     setSelectedMemberIds([]);
   }, [isLoggedIn, projectIdFromPath]);
 
+  useEffect(() => {
+    if (["/boards", "/sprints", "/reports"].includes(path)) {
+      routeTo("/projects");
+    }
+  }, [path]);
+
+  useEffect(() => {
+    if (isProjectCreatePath) {
+      setForms((current) => ({ ...current, project: emptyForms.project }));
+      setProjectMemberSearch("");
+    }
+  }, [isProjectCreatePath]);
+
   function updateForm(formKey, event) {
     const { files, name, type, value } = event.target;
     setForms((current) => ({
@@ -359,6 +400,36 @@ function AdminDashboard() {
         [name]: value,
       },
     }));
+  }
+
+  function handleProjectOnboarding(action) {
+    if (action.type === "change") {
+      setForms((current) => ({
+        ...current,
+        project: {
+          ...current.project,
+          [action.name]: action.value,
+        },
+      }));
+      return;
+    }
+
+    if (action.type === "toggle-member") {
+      setForms((current) => ({
+        ...current,
+        project: {
+          ...current.project,
+          memberIds: current.project.memberIds.includes(action.memberId)
+            ? current.project.memberIds.filter((memberId) => memberId !== action.memberId)
+            : [...current.project.memberIds, action.memberId],
+        },
+      }));
+      return;
+    }
+
+    if (action.type === "submit") {
+      createProject();
+    }
   }
 
   function updateProjectPlanningPhase(phaseIndex, field, value) {
@@ -524,6 +595,33 @@ function AdminDashboard() {
     }
   }
 
+  async function createProject() {
+    setLoading(true);
+    setStatus("");
+    setError("");
+
+    try {
+      const payload = {
+        ...forms.project,
+        name: forms.project.name.trim(),
+        description: forms.project.description.trim(),
+        repositoryUrl: forms.project.repositoryUrl.trim(),
+        clientCompany: forms.project.clientCompany.trim(),
+      };
+
+      const data = await addProject(payload);
+      setStatus(data.message);
+      setForms((current) => ({ ...current, project: emptyForms.project }));
+      setProjectMemberSearch("");
+      await loadDashboard();
+      routeTo("/projects");
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function toggleProjectMember(memberId) {
     setSelectedMemberIds((current) =>
       current.includes(memberId) ? current.filter((selectedId) => selectedId !== memberId) : [...current, memberId],
@@ -552,7 +650,7 @@ function AdminDashboard() {
     }
   }
 
-  async function createAdminProjectTicket() {
+  async function createAdminProjectTicket(ticketPayload, onSuccess) {
     if (!selectedProject) {
       return;
     }
@@ -562,18 +660,19 @@ function AdminDashboard() {
     setError("");
 
     try {
-      const urls = forms.projectTicket.urlsText
+      const urls = ticketPayload.urlsText
         .split("\n")
         .map((url) => url.trim())
         .filter(Boolean);
 
       const data = await addProjectTicket(selectedProject._id, {
-        title: forms.projectTicket.title,
-        description: forms.projectTicket.description,
-        assignedTo: forms.projectTicket.assignedTo,
-        deadline: forms.projectTicket.deadline,
-        sprintSelection: forms.projectTicket.sprintSelection,
-        status: forms.projectTicket.status,
+        title: ticketPayload.title,
+        description: ticketPayload.description,
+        assignedTo: ticketPayload.assignedTo,
+        deadline: ticketPayload.deadline,
+        status: "open",
+        priority: ticketPayload.priority,
+        type: ticketPayload.type,
         urls,
       });
 
@@ -583,13 +682,12 @@ function AdminDashboard() {
         projectTicket: {
           ...emptyForms.projectTicket,
           assignedTo: selectedProject.members?.[0]?._id || "",
-          sprintSelection:
-            selectedProject.planning?.flatMap((phase, phaseIndex) =>
-              (phase.sprints || []).map((_, sprintIndex) => `${phaseIndex}:${sprintIndex}`),
-            )[0] || "",
         },
       }));
       setStatus(data.message);
+      if (onSuccess) {
+        onSuccess();
+      }
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -634,18 +732,60 @@ function AdminDashboard() {
   const navItems = [
     { label: "Dashboard", path: "/" },
     { label: "Projects", path: "/projects" },
-    { label: "Boards", path: "/boards" },
-    { label: "Issues", path: "/issues" },
-    { label: "Sprints", path: "/sprints" },
-    { label: "Teams", path: "/teams" },
-    { label: "Reports", path: "/reports" },
+    { label: "Tickets", path: "/issues" },
+    { label: "Members", path: "/members" },
+    { label: "Clients", path: "/clients" },
     { label: "Settings", path: "/settings" },
   ];
 
+  let pageMeta = {
+    eyebrow: "Operations Overview",
+    title: "Project delivery control with a cleaner admin surface",
+    description: "Manage projects, assignments, tickets, and stakeholders from a simplified SaaS-style workspace.",
+  };
+
+  if (isProjectCreatePath) {
+    pageMeta = {
+      eyebrow: "Projects",
+      title: "Onboard a new project",
+      description: "Set up the project workspace, key metadata, and initial assignees without planning-heavy workflow setup.",
+    };
+  } else if (path === "/clients/onboard") {
+    pageMeta = {
+      eyebrow: "Clients",
+      title: "Onboard a new client",
+      description: "Create a polished stakeholder profile with contact details and agreement handling in one clean flow.",
+    };
+  } else if (isClientsPath) {
+    pageMeta = {
+      eyebrow: "Clients",
+      title: "Client directory",
+      description: "Track stakeholder accounts, agreement status, and client contact details from a single view.",
+    };
+  } else if (projectIdFromPath) {
+    pageMeta = {
+      eyebrow: "Projects",
+      title: "Project workspace",
+      description: "Review project details, manage members, and raise tickets from one clean workspace.",
+    };
+  } else if (isProjectsPath) {
+    pageMeta = {
+      eyebrow: "Projects",
+      title: "Project portfolio",
+      description: "Browse active client workspaces and open the details that need attention.",
+    };
+  } else if (isIssuesPath) {
+    pageMeta = {
+      eyebrow: "Tickets",
+      title: "Ticket queue",
+      description: "Monitor current issues and requests across your workspace.",
+    };
+  }
+
   return (
-    <main className="workspace-shell">
-      <div className="workspace-layout">
-        <aside className="workspace-sidebar p-5">
+    <AppShell
+      sidebar={(
+        <Sidebar>
           <div className="flex items-center gap-3">
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-blue-600 text-sm font-bold text-white">
               OD
@@ -662,8 +802,9 @@ function AdminDashboard() {
                 path === item.path ||
                 (item.path === "/projects" && path.startsWith("/projects")) ||
                 (item.path === "/issues" && path.startsWith("/issues")) ||
-                (item.path === "/teams" && path.startsWith("/members")) ||
-                (item.path === "/settings" && path.startsWith("/clients"));
+                (item.path === "/members" && path.startsWith("/members")) ||
+                (item.path === "/clients" && path.startsWith("/clients")) ||
+                (item.path === "/settings" && path.startsWith("/settings"));
 
               return (
                 <button className={`sidebar-link w-full justify-between ${isActive ? "sidebar-link-active" : ""}`} key={item.path} onClick={() => routeTo(item.path)} type="button">
@@ -676,15 +817,9 @@ function AdminDashboard() {
                 </button>
               );
             })}
-            <button className={`sidebar-link w-full justify-between ${isClientsPath ? "sidebar-link-active" : ""}`} onClick={() => routeTo("/clients")} type="button">
-              <span className="flex items-center gap-3">
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-xs font-bold text-slate-600">09</span>
-                Clients
-              </span>
-            </button>
             <button className={`sidebar-link w-full justify-between ${isRequestsPath ? "sidebar-link-active" : ""}`} onClick={() => routeTo("/requests")} type="button">
               <span className="flex items-center gap-3">
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-xs font-bold text-slate-600">10</span>
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-xs font-bold text-slate-600">06</span>
                 Requests
               </span>
             </button>
@@ -694,47 +829,54 @@ function AdminDashboard() {
             <p className="text-sm font-semibold text-slate-900">{currentAdmin?.name || "Admin workspace"}</p>
             <p className="muted-text mt-1 text-sm">{currentAdmin?.email || "Operations owner"}</p>
           </div>
-        </aside>
-
-        <section className="workspace-main">
-          <header className="workspace-header p-6">
-            <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-              <div>
-                <p className="eyebrow">Operations Overview</p>
-                <h1 className="hero-title mt-3">Jira-like delivery control with a cleaner admin surface</h1>
-                <p className="muted-text mt-3 max-w-3xl text-sm leading-6">
-                  Manage projects, delivery status, assignments, and reporting from a sidebar-first enterprise workspace.
-                </p>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                <button className="primary-button" onClick={() => routeTo("/projects/new")} type="button">
-                  New project
-                </button>
-                <button className="secondary-button" onClick={() => routeTo("/clients/onboard")} type="button">
-                  Onboard client
-                </button>
-                <button className="secondary-button" onClick={() => routeTo("/members/new")} type="button">
-                  Add member
-                </button>
-                <button className="secondary-button" onClick={loadDashboard} type="button">
-                  Refresh
-                </button>
-                <button className="secondary-button" onClick={logoutAdmin} type="button">
-                  Logout
-                </button>
-              </div>
-            </div>
-
+        </Sidebar>
+      )}
+      topbar={
+        isDashboardPath ? (
+          <Topbar>
+            <PageHeader
+              actions={
+                <>
+                  <button className="primary-button" onClick={() => routeTo("/projects/new")} type="button">
+                    New project
+                  </button>
+                  <button className="secondary-button" onClick={() => routeTo("/clients/onboard")} type="button">
+                    Onboard client
+                  </button>
+                  <button className="secondary-button" onClick={() => routeTo("/members/new")} type="button">
+                    Add member
+                  </button>
+                  <button className="secondary-button" onClick={loadDashboard} type="button">
+                    Refresh
+                  </button>
+                  <button className="secondary-button" onClick={logoutAdmin} type="button">
+                    Logout
+                  </button>
+                </>
+              }
+              description={pageMeta.description}
+              eyebrow={pageMeta.eyebrow}
+              title={pageMeta.title}
+            />
             {status ? <p className="status-success mt-5">{status}</p> : null}
             {error ? <p className="status-error mt-5">{error}</p> : null}
-          </header>
+          </Topbar>
+        ) : null
+      }
+    >
+          {!isDashboardPath && status ? <p className="status-success mt-6">{status}</p> : null}
+          {!isDashboardPath && error ? <p className="status-error mt-6">{error}</p> : null}
+
 
           {path === "/clients/onboard" ? (
-            <ClientOnboardingPage
+            <ClientOnboardingForm
+              clients={filteredClients}
               form={forms.client}
               loading={loading}
               onBack={() => routeTo("/clients")}
-              onChange={(event) => updateForm("client", event)}
+              onChange={(event) => {
+                updateForm("client", event);
+              }}
               onSubmit={() => handleCreate("client", addClient, "/clients")}
             />
           ) : null}
@@ -750,35 +892,27 @@ function AdminDashboard() {
           ) : null}
 
           {isProjectCreatePath ? (
-            <ProjectCreatePage
+            <ProjectOnboardingForm
+              clients={activeClients}
               form={forms.project}
               loading={loading}
+              memberSearch={projectMemberSearch}
               onBack={() => routeTo("/projects")}
-              onChange={(event) => updateForm("project", event)}
-              onAddPhase={addProjectPlanningPhase}
-              onAddSprint={addProjectPlanningSprint}
-              onAddTicket={addProjectPlanningTicket}
-              onPhaseChange={updateProjectPlanningPhase}
-              onRemovePhase={removeProjectPlanningPhase}
-              onRemoveSprint={removeProjectPlanningSprint}
-              onRemoveTicket={removeProjectPlanningTicket}
-              onSprintChange={updateProjectPlanningSprint}
-              onSubmit={() => handleCreate("project", addProject, "/projects")}
-              onTicketChange={updateProjectPlanningTicket}
+              onMemberSearch={setProjectMemberSearch}
+              onSubmit={handleProjectOnboarding}
+              members={activeMembers}
             />
           ) : null}
 
           {projectIdFromPath ? (
-            <ProjectDetailPage
-              adminTicketForm={forms.projectTicket}
+            <ProjectWorkspacePage
+              key={selectedProject?._id || projectIdFromPath}
               loading={loading}
               memberSearch={memberSearch}
               onBack={() => routeTo("/projects")}
               onCreateTicket={createAdminProjectTicket}
               onSaveMembers={saveProjectMembers}
               onSearchMembers={setMemberSearch}
-              onSprintStatusChange={handleSprintStatusChange}
-              onTicketFormChange={updateProjectTicketForm}
               onToggleMember={toggleProjectMember}
               project={selectedProject}
               searchedMembers={searchedProjectMembers}
@@ -808,10 +942,7 @@ function AdminDashboard() {
             />
           ) : null}
 
-          {isBoardsPath ? <BoardPage issues={issues} projects={projects} requests={requests} /> : null}
-          {isSprintsPath ? <SprintsPage projects={projects} /> : null}
           {isTeamsPath ? <TeamPage clients={clients} members={members} projects={projects} /> : null}
-          {isReportsPath ? <ReportsPage issues={issues} members={members} projects={projects} requests={requests} /> : null}
           {isSettingsPath ? <SettingsPage clients={clients} members={members} /> : null}
 
           {isClientsPath ? (
@@ -833,9 +964,7 @@ function AdminDashboard() {
           {isIssuesPath ? (
             <IssuesPage issues={filteredIssues} searchValue={issueSearch} onSearch={setIssueSearch} />
           ) : null}
-        </section>
-      </div>
-    </main>
+    </AppShell>
   );
 }
 
@@ -1247,45 +1376,36 @@ function SettingsPage({ clients, members }) {
 }
 
 function ClientsPage({ clients, onSearch, searchValue }) {
+  const activeCount = clients.filter((client) => client.status === "active").length;
+  const invitedCount = clients.filter((client) => client.status === "invited").length;
+  const agreementsCount = clients.filter((client) => client.agreementDocument?.url).length;
+
   return (
     <DirectoryPage actionLabel="Onboard client" countLabel={`${clients.length} total`} onAction={() => routeTo("/clients/onboard")} onSearch={onSearch} searchPlaceholder="Search clients" searchValue={searchValue} title="Clients">
-      <div className="table-shell mt-6">
-        <div className="table-scroll">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Client</th>
-                <th>Company</th>
-                <th>Status</th>
-                <th>Phone</th>
-                <th>Agreement</th>
-              </tr>
-            </thead>
-            <tbody>
-              {clients.map((client) => (
-                <tr key={client._id}>
-                  <td>
-                    <p className="font-semibold text-slate-900">{client.name}</p>
-                    <p className="muted-text text-sm">{client.email}</p>
-                  </td>
-                  <td>{client.company || "-"}</td>
-                  <td><StatusBadge status={client.status} /></td>
-                  <td>{client.phone || "-"}</td>
-                  <td>
-                    {client.agreementDocument?.url ? (
-                      <a className="secondary-button px-3 py-2" href={client.agreementDocument.url} rel="noreferrer" target="_blank">
-                        View
-                      </a>
-                    ) : (
-                      <span className="muted-text">Pending</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <div className="mt-6 grid gap-3 md:grid-cols-3">
+        <CompactStat label="Active clients" value={activeCount} />
+        <CompactStat label="Invited clients" value={invitedCount} />
+        <CompactStat label="Agreements uploaded" value={agreementsCount} />
       </div>
+
+      <div className="mt-6 grid gap-4 lg:grid-cols-2">
+        {clients.map((client) => (
+          <ClientCard client={client} key={client._id} />
+        ))}
+      </div>
+
+      {!clients.length ? (
+        <EmptyStatePanel
+          action={
+            <button className="primary-button" onClick={() => routeTo("/clients/onboard")} type="button">
+              Onboard first client
+            </button>
+          }
+          className="mt-6"
+          copy="Create the first client profile to manage stakeholders, agreements, and project relationships."
+          title="No clients yet"
+        />
+      ) : null}
     </DirectoryPage>
   );
 }
@@ -1331,28 +1451,24 @@ function MembersPage({ members, onSearch, searchValue }) {
 
 function ProjectsPage({ projects, onSearch, searchValue }) {
   return (
-    <DirectoryPage actionLabel="Add project" countLabel={`${projects.length} total`} onAction={() => routeTo("/projects/new")} onSearch={onSearch} searchPlaceholder="Search projects" searchValue={searchValue} title="Project Management">
+    <DirectoryPage actionLabel="New project" countLabel={`${projects.length} total`} onAction={() => routeTo("/projects/new")} onSearch={onSearch} searchPlaceholder="Search projects" searchValue={searchValue} title="Projects">
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
         {projects.map((project) => (
-          <article className="surface-muted p-5" key={project._id}>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900">{project.name}</h3>
-                <p className="muted-text mt-2 text-sm">{project.description || "No description provided."}</p>
-              </div>
-              <StatusBadge status={project.status} />
-            </div>
-            <div className="mt-5 grid gap-3 sm:grid-cols-3">
-              <CompactStat label="Client" value={project.clientEmail || "-"} />
-              <CompactStat label="Members" value={project.members?.length || 0} />
-              <CompactStat label="Planned" value={countPlannedTickets(project.planning)} />
-            </div>
-            <button className="primary-button mt-5" onClick={() => routeTo(`/projects/${project._id}`)} type="button">
-              Open workspace
-            </button>
-          </article>
+          <ProjectCard key={project._id} onOpen={() => routeTo(`/projects/${project._id}`)} project={project} />
         ))}
       </div>
+      {!projects.length ? (
+        <EmptyStatePanel
+          action={
+            <button className="primary-button" onClick={() => routeTo("/projects/new")} type="button">
+              Create project
+            </button>
+          }
+          className="mt-6"
+          copy="Set up your first project workspace to start raising and tracking tickets."
+          title="No projects yet"
+        />
+      ) : null}
     </DirectoryPage>
   );
 }
@@ -1381,7 +1497,7 @@ function RequestsPage({ requests, onSearch, searchValue }) {
 
 function IssuesPage({ issues, onSearch, searchValue }) {
   return (
-    <DirectoryPage countLabel={`${issues.length} total`} onSearch={onSearch} searchPlaceholder="Search issues" searchValue={searchValue} title="Issues">
+    <DirectoryPage countLabel={`${issues.length} total`} onSearch={onSearch} searchPlaceholder="Search tickets" searchValue={searchValue} title="Tickets">
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
         {issues.map((issue) => (
           <article className="surface-muted p-5" key={issue._id}>
@@ -1417,18 +1533,6 @@ function DirectoryPage({ actionLabel, children, countLabel, onAction, onSearch, 
       </div>
       {children}
     </section>
-  );
-}
-
-function ClientOnboardingPage({ form, loading, onBack, onChange, onSubmit }) {
-  return (
-    <FormPage title="Onboard client" description="Create a clean client profile and upload the working agreement." onBack={onBack} onSubmit={onSubmit} loading={loading} submitLabel="Create client">
-      <label className="block text-sm font-semibold text-slate-900">Name<input className="input-field" name="name" onChange={onChange} required value={form.name} /></label>
-      <label className="block text-sm font-semibold text-slate-900">Email<input className="input-field" name="email" onChange={onChange} required type="email" value={form.email} /></label>
-      <label className="block text-sm font-semibold text-slate-900">Company<input className="input-field" name="company" onChange={onChange} value={form.company} /></label>
-      <label className="block text-sm font-semibold text-slate-900">Phone<input className="input-field" name="phone" onChange={onChange} value={form.phone} /></label>
-      <label className="block text-sm font-semibold text-slate-900">Agreement<input className="input-field" name="agreement" onChange={onChange} required type="file" /></label>
-    </FormPage>
   );
 }
 
@@ -1846,28 +1950,11 @@ function InfoRow({ label, value }) {
 }
 
 function StatusBadge({ status }) {
-  const normalized = (status || "planned").toLowerCase();
-  const className =
-    normalized === "active" || normalized === "in_progress"
-      ? "badge badge-info"
-      : normalized === "completed" || normalized === "resolved" || normalized === "done"
-        ? "badge badge-success"
-        : normalized === "blocked"
-          ? "badge badge-danger"
-          : "badge badge-warning";
-
-  return <span className={className}>{normalizeStatus(status)}</span>;
+  return <SurfaceStatusBadge status={status} />;
 }
 
 function EmptyState({ copy }) {
-  return (
-    <div className="empty-state">
-      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-sm font-bold text-slate-600">
-        OD
-      </div>
-      <p className="mt-4 text-sm text-slate-700">{copy}</p>
-    </div>
-  );
+  return <EmptyStatePanel copy={copy} title="Nothing here yet" />;
 }
 
 export default AdminDashboard;

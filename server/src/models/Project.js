@@ -99,6 +99,21 @@ const projectSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    repositoryUrl: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    category: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    clientCompany: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     planning: [planningPhaseSchema],
     members: [
       {

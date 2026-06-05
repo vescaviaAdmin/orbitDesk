@@ -75,11 +75,11 @@ a {
 @layer components {
   .app-shell,
   .workspace-shell {
-    @apply min-h-screen px-4 py-5 sm:px-6 sm:py-6;
+    @apply min-h-screen bg-slate-50 px-6 py-6;
   }
 
   .workspace-layout {
-    @apply mx-auto grid max-w-[1600px] gap-6 xl:grid-cols-[272px_minmax(0,1fr)];
+    @apply mx-auto grid max-w-[1560px] gap-6 xl:grid-cols-[264px_minmax(0,1fr)];
   }
 
   .workspace-sidebar,
@@ -87,7 +87,7 @@ a {
     background: rgba(255, 255, 255, 0.9);
     border: 1px solid var(--border);
     box-shadow: var(--shadow-soft);
-    @apply rounded-[28px] backdrop-blur;
+    @apply rounded-xl backdrop-blur;
   }
 
   .workspace-main {
@@ -99,20 +99,20 @@ a {
     background: rgba(255, 255, 255, 0.88);
     border: 1px solid var(--border);
     box-shadow: var(--shadow-card);
-    @apply rounded-[24px] backdrop-blur;
+    @apply rounded-xl backdrop-blur;
   }
 
   .surface-card {
     background: var(--surface);
-    border: 1px solid var(--border);
-    box-shadow: var(--shadow-card);
-    @apply rounded-2xl;
+    border: 1px solid #b7ddff;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    @apply relative overflow-hidden rounded-xl;
   }
 
   .surface-muted {
     background: var(--surface-muted);
     border: 1px solid var(--border);
-    @apply rounded-2xl;
+    @apply relative overflow-hidden rounded-xl;
   }
 
   .hero-title {
@@ -142,7 +142,7 @@ a {
     background: var(--surface);
     border: 1px solid var(--border);
     color: var(--text);
-    @apply mt-2 w-full rounded-xl px-4 py-3 outline-none placeholder:text-slate-400;
+    @apply mt-2 w-full rounded-lg px-4 py-3 outline-none placeholder:text-slate-400;
   }
 
   .input-field:focus,
@@ -156,7 +156,7 @@ a {
     background: linear-gradient(135deg, #7c3aed, #2563eb);
     color: #ffffff;
     box-shadow: 0 10px 24px rgba(109, 40, 217, 0.24);
-    @apply inline-flex items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60;
+    @apply inline-flex h-10 items-center justify-center rounded-lg px-4 text-sm font-semibold hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60;
   }
 
   .secondary-button,
@@ -164,7 +164,11 @@ a {
     background: rgba(255, 255, 255, 0.92);
     border: 1px solid var(--border);
     color: var(--text);
-    @apply inline-flex items-center justify-center rounded-xl px-4 py-3 text-sm font-semibold hover:border-slate-300 hover:bg-slate-50;
+    @apply inline-flex h-10 items-center justify-center rounded-lg px-4 text-sm font-semibold hover:border-slate-300 hover:bg-slate-50;
+  }
+
+  .ghost-button {
+    @apply inline-flex h-9 w-9 items-center justify-center rounded-lg border border-transparent bg-transparent text-slate-500 hover:border-blue-100 hover:bg-blue-50 hover:text-slate-900;
   }
 
   .glass-chip {
@@ -188,7 +192,7 @@ a {
   }
 
   .sidebar-link {
-    @apply flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900;
+    @apply flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900;
   }
 
   .sidebar-link-active {
@@ -235,7 +239,7 @@ a {
   }
 
   .badge {
-    @apply inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold;
+    @apply inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold;
   }
 
   .badge-primary {
@@ -256,6 +260,42 @@ a {
   .badge-warning {
     background: var(--warning-soft);
     color: var(--warning);
+  }
+
+  .badge-muted {
+    background: #eef2f7;
+    color: #475569;
+  }
+
+  .badge-high {
+    background: #ffedd5;
+    color: #c2410c;
+  }
+
+  .badge-danger-soft {
+    background: #fef2f2;
+    color: #b91c1c;
+  }
+
+  .badge-ticket {
+    background: #eff6ff;
+    color: #1d4ed8;
+  }
+
+  .project-card,
+  .ticket-card {
+    background: #ffffff;
+    border: 1px solid #b7ddff;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    @apply relative overflow-hidden rounded-xl p-5 transition-all duration-200 hover:border-blue-300 hover:shadow-sm;
+  }
+
+  .ticket-grid {
+    @apply grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3;
+  }
+
+  .ticket-card-action {
+    @apply inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-sm text-slate-500;
   }
 
   .badge-danger {
@@ -281,7 +321,22 @@ a {
     background: var(--surface);
     border: 1px solid var(--border);
     box-shadow: var(--shadow-card);
-    @apply rounded-2xl p-4;
+    @apply relative overflow-hidden rounded-2xl p-4;
+  }
+
+  .surface-card::before,
+  .surface-muted::before,
+  .project-card::before,
+  .ticket-card::before,
+  .task-card::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 4px;
+    background: linear-gradient(180deg, #8b5cf6 0%, #3b82f6 52%, #14b8a6 100%);
+    opacity: 0.95;
   }
 
   .avatar-badge {
@@ -299,6 +354,31 @@ a {
 
   .empty-state {
     @apply surface-muted flex flex-col items-center justify-center rounded-2xl border-dashed p-8 text-center;
+  }
+
+  .detail-layout {
+    @apply grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.6fr)];
+  }
+
+  .detail-main-stack,
+  .detail-side-stack {
+    @apply space-y-6;
+  }
+
+  .strip-grid {
+    @apply grid gap-3 sm:grid-cols-2 xl:grid-cols-3;
+  }
+
+  .strip-card {
+    @apply surface-muted flex items-center justify-between gap-3 p-4;
+  }
+
+  .compact-panel-title {
+    @apply text-lg font-semibold tracking-[-0.02em] text-slate-900;
+  }
+
+  .action-row {
+    @apply flex flex-wrap items-center gap-3;
   }
 
   .loading-skeleton {

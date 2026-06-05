@@ -123,10 +123,27 @@ async function memberProjectRoutes(fastify) {
 
   fastify.post("/member/projects/:projectId/tickets", async (request, reply) => {
     const member = await requireMember(request, fastify);
-    const { title, description = "", assignedTo, deadline, sprintSelection, status = "open", urls = [] } = request.body || {};
+    const {
+      title,
+      description = "",
+      assignedTo,
+      deadline,
+      sprintSelection = "",
+      status = "open",
+      priority = "medium",
+      type = "task",
+      urls = [],
+    } = request.body || {};
+    const normalizedTitle = String(title || "").trim();
+    const normalizedDescription = String(description || "").trim();
+    const parsedDeadline = new Date(deadline);
 
-    if (!title || !assignedTo || !deadline || !sprintSelection) {
-      throw fastify.httpErrors.badRequest("title, assignedTo, deadline, and sprintSelection are required");
+    if (!normalizedTitle || !assignedTo || !deadline) {
+      throw fastify.httpErrors.badRequest("title, assignedTo, and deadline are required");
+    }
+
+    if (Number.isNaN(parsedDeadline.getTime())) {
+      throw fastify.httpErrors.badRequest("deadline must be a valid date");
     }
 
     if (!mongoose.Types.ObjectId.isValid(assignedTo)) {
@@ -135,6 +152,14 @@ async function memberProjectRoutes(fastify) {
 
     if (!["open", "in_progress", "resolved"].includes(status)) {
       throw fastify.httpErrors.badRequest("status must be open, in_progress, or resolved");
+    }
+
+    if (!["low", "medium", "high", "critical"].includes(priority)) {
+      throw fastify.httpErrors.badRequest("priority must be low, medium, high, or critical");
+    }
+
+    if (!["bug", "feature", "task", "improvement"].includes(type)) {
+      throw fastify.httpErrors.badRequest("type must be bug, feature, task, or improvement");
     }
 
     const normalizedUrls = Array.isArray(urls) ? urls.filter(Boolean) : [];
@@ -152,14 +177,16 @@ async function memberProjectRoutes(fastify) {
       throw fastify.httpErrors.badRequest("Ticket can only be assigned to a member in this project");
     }
 
-    const sprint = resolveSprintSelection(project, sprintSelection, fastify);
+    const sprint = sprintSelection ? resolveSprintSelection(project, sprintSelection, fastify) : undefined;
 
     const ticket = await Ticket.create({
       project: project._id,
-      title,
-      description,
+      title: normalizedTitle,
+      description: normalizedDescription,
+      priority,
+      type,
       urls: normalizedUrls,
-      deadline: new Date(deadline),
+      deadline: parsedDeadline,
       createdBy: member._id,
       assignedTo,
       sprint,
@@ -170,12 +197,29 @@ async function memberProjectRoutes(fastify) {
     await ticket.populate("createdBy", "name email");
     await ticket.populate("assignedTo", "name email");
     await ticket.populate("project", "name");
-    await sendTicketAssignedMail(fastify, ticket.assignedTo, ticket, project);
+
+    let message = "Ticket raised successfully";
+
+    try {
+      await sendTicketAssignedMail(fastify, ticket.assignedTo, ticket, project);
+      message = "Ticket raised and assignee notified by email";
+    } catch (mailError) {
+      fastify.log.warn(
+        {
+          err: mailError,
+          memberId: ticket.assignedTo?._id,
+          projectId: project._id,
+          ticketId: ticket._id,
+        },
+        "Ticket was created but assignment email could not be sent",
+      );
+      message = "Ticket raised successfully, but the email notification could not be sent";
+    }
 
     reply.code(201);
     return {
       ticket,
-      message: "Ticket raised and assignee notified by email",
+      message,
     };
   });
 
