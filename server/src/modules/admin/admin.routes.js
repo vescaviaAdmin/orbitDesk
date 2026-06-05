@@ -191,7 +191,17 @@ async function adminRoutes(fastify) {
 
   fastify.post("/admin/projects", async (request, reply) => {
     const admin = await requireAdmin(request, fastify);
-    const { name, clientEmail = "", status = "planned", description = "", planning = [] } = request.body || {};
+    const {
+      name,
+      clientEmail = "",
+      clientCompany = "",
+      status = "planned",
+      description = "",
+      repositoryUrl = "",
+      category = "",
+      planning = [],
+      memberIds = [],
+    } = request.body || {};
     const normalizedClientEmail = normalizeEmail(clientEmail);
 
     if (!name) {
@@ -205,14 +215,24 @@ async function adminRoutes(fastify) {
       }
     }
 
+    const activeMembers = await Member.find({
+      _id: { $in: Array.isArray(memberIds) ? memberIds : [] },
+      status: "active",
+      ownerAdmin: admin._id,
+    }).select("_id");
+
     const normalizedPlanning = normalizePlanning(planning);
 
     const project = await Project.create({
       name,
       clientEmail: normalizedClientEmail,
+      clientCompany,
       status,
       description,
+      repositoryUrl,
+      category,
       planning: normalizedPlanning,
+      members: activeMembers.map((member) => member._id),
       ownerAdmin: admin._id,
     });
 
@@ -228,7 +248,7 @@ async function adminRoutes(fastify) {
 
     const projects = await Project.find({ ownerAdmin: admin._id })
       .sort({ createdAt: -1 })
-      .select("name clientEmail status description planning members createdAt")
+      .select("name clientEmail clientCompany status description repositoryUrl category planning members createdAt")
       .populate({
         path: "members",
         select: "name email status",
@@ -274,7 +294,7 @@ async function adminRoutes(fastify) {
         select: "name email status",
         match: { ownerAdmin: admin._id },
       })
-      .select("name clientEmail status description planning members createdAt");
+      .select("name clientEmail clientCompany status description repositoryUrl category planning members createdAt");
 
     if (!project) {
       throw fastify.httpErrors.notFound("Project not found");
@@ -282,6 +302,7 @@ async function adminRoutes(fastify) {
 
     const tickets = await Ticket.find({ project: project.id, ownerAdmin: admin._id })
       .sort({ createdAt: -1 })
+      .populate("project", "name")
       .populate("createdBy", "name email")
       .populate("createdByAdmin", "name email")
       .populate("assignedTo", "name email");
@@ -347,14 +368,32 @@ async function adminRoutes(fastify) {
 
   fastify.post("/admin/projects/:projectId/tickets", async (request, reply) => {
     const admin = await requireAdmin(request, fastify);
-    const { title, description = "", assignedTo, deadline, sprintSelection, status = "open", urls = [] } = request.body || {};
+    const {
+      title,
+      description = "",
+      assignedTo,
+      deadline,
+      sprintSelection = "",
+      status = "open",
+      priority = "medium",
+      type = "task",
+      urls = [],
+    } = request.body || {};
 
-    if (!title || !assignedTo || !deadline || !sprintSelection) {
-      throw fastify.httpErrors.badRequest("title, assignedTo, deadline, and sprintSelection are required");
+    if (!title || !assignedTo || !deadline) {
+      throw fastify.httpErrors.badRequest("title, assignedTo, and deadline are required");
     }
 
-    if (!["open", "in_progress", "resolved"].includes(status)) {
-      throw fastify.httpErrors.badRequest("status must be open, in_progress, or resolved");
+    if (!["open", "in_progress", "resolved", "closed"].includes(status)) {
+      throw fastify.httpErrors.badRequest("status must be open, in_progress, resolved, or closed");
+    }
+
+    if (!["low", "medium", "high", "critical"].includes(priority)) {
+      throw fastify.httpErrors.badRequest("priority must be low, medium, high, or critical");
+    }
+
+    if (!["bug", "feature", "task", "improvement"].includes(type)) {
+      throw fastify.httpErrors.badRequest("type must be bug, feature, task, or improvement");
     }
 
     const project = await Project.findOne({ _id: request.params.projectId, ownerAdmin: admin._id }).populate("members", "_id name email");
@@ -368,12 +407,14 @@ async function adminRoutes(fastify) {
     }
 
     const normalizedUrls = Array.isArray(urls) ? urls.filter(Boolean) : [];
-    const sprint = resolveSprintSelection(project, sprintSelection, fastify);
+    const sprint = sprintSelection ? resolveSprintSelection(project, sprintSelection, fastify) : undefined;
 
     const ticket = await Ticket.create({
       project: project._id,
       title,
       description,
+      priority,
+      type,
       urls: normalizedUrls,
       deadline: new Date(deadline),
       createdByAdmin: admin._id,

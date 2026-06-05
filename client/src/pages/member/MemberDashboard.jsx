@@ -14,8 +14,9 @@ const emptyTicket = {
   description: "",
   assignedTo: "",
   deadline: "",
-  sprintSelection: "",
   status: "open",
+  priority: "medium",
+  type: "task",
   urlsText: "",
 };
 
@@ -39,6 +40,10 @@ function formatDate(value) {
     month: "short",
     day: "numeric",
   });
+}
+
+function getTodayInputValue() {
+  return new Date().toISOString().split("T")[0];
 }
 
 function resolveCurrentPhase(phases) {
@@ -109,6 +114,28 @@ function normalizeStatus(status) {
   return (status || "open").replaceAll("_", " ");
 }
 
+function getProjectTone(status) {
+  const normalized = (status || "").toLowerCase();
+
+  if (["completed", "done", "resolved"].includes(normalized)) {
+    return "completed";
+  }
+
+  if (["active", "assigned", "in_progress", "review"].includes(normalized)) {
+    return "assigned";
+  }
+
+  if (["planned", "pending", "open"].includes(normalized)) {
+    return "pending";
+  }
+
+  return "neutral";
+}
+
+function countProjectSprints(project) {
+  return (project.planning || []).reduce((total, phase) => total + (phase.sprints?.length || 0), 0);
+}
+
 function MemberDashboard() {
   const session = JSON.parse(localStorage.getItem("orbitdesk_session") || "{}");
   const [path, setPath] = useState(window.location.pathname);
@@ -131,6 +158,7 @@ function MemberDashboard() {
   const isTicketsPath = path === "/member/tickets";
   const isRequestsPath = path === "/member/requests";
   const isDocumentsPath = path === "/member/documents";
+  const projectTicketsPathId = path.match(/^\/member\/projects\/([^/]+)\/tickets$/)?.[1] || "";
   const projectIdFromPath = path.match(/^\/member\/projects\/([^/]+)$/)?.[1] || "";
   const ticketIdFromPath = path.match(/^\/member\/tickets\/([^/]+)$/)?.[1] || "";
   const createTicketProjectId = path.match(/^\/member\/projects\/([^/]+)\/tickets\/new$/)?.[1] || "";
@@ -149,17 +177,6 @@ function MemberDashboard() {
   const assignedMember = useMemo(
     () => (selectedProject?.members || []).find((member) => member._id === ticketForm.assignedTo),
     [selectedProject, ticketForm.assignedTo],
-  );
-
-  const sprintOptions = useMemo(
-    () =>
-      (selectedProject?.planning || []).flatMap((phase, phaseIndex) =>
-        (phase.sprints || []).map((sprint, sprintIndex) => ({
-          value: `${phaseIndex}:${sprintIndex}`,
-          label: `${phase.name || `Phase ${phaseIndex + 1}`} / ${sprint.name || `Sprint ${sprintIndex + 1}`}`,
-        })),
-      ),
-    [selectedProject],
   );
 
   const requestsFeed = useMemo(
@@ -222,10 +239,6 @@ function MemberDashboard() {
       setTicketForm({
         ...emptyTicket,
         assignedTo: data.project.members?.[0]?._id || "",
-        sprintSelection:
-          data.project.planning?.flatMap((phase, phaseIndex) =>
-            (phase.sprints || []).map((_, sprintIndex) => `${phaseIndex}:${sprintIndex}`),
-          )[0] || "",
       });
       setRequestForm(emptyRequest);
     } catch (requestError) {
@@ -279,8 +292,8 @@ function MemberDashboard() {
   }, []);
 
   useEffect(() => {
-    if (projectIdFromPath || createTicketProjectId || createRequestProjectId) {
-      loadProject(projectIdFromPath || createTicketProjectId || createRequestProjectId);
+    if (projectIdFromPath || projectTicketsPathId || createTicketProjectId || createRequestProjectId) {
+      loadProject(projectIdFromPath || projectTicketsPathId || createTicketProjectId || createRequestProjectId);
       return;
     }
 
@@ -296,7 +309,7 @@ function MemberDashboard() {
     setTicketForm(emptyTicket);
     setRequestForm(emptyRequest);
     setMemberSearch("");
-  }, [projectIdFromPath, ticketIdFromPath, createTicketProjectId, createRequestProjectId]);
+  }, [projectIdFromPath, projectTicketsPathId, ticketIdFromPath, createTicketProjectId, createRequestProjectId]);
 
   useEffect(() => {
     if (isDashboardPath || isRequestsPath || isDocumentsPath) {
@@ -329,6 +342,29 @@ function MemberDashboard() {
     event.preventDefault();
 
     if (!selectedProject) {
+      setError("Select a project before raising a ticket.");
+      return;
+    }
+
+    const title = ticketForm.title.trim();
+    const description = ticketForm.description.trim();
+    const urls = ticketForm.urlsText
+      .split("\n")
+      .map((url) => url.trim())
+      .filter(Boolean);
+
+    if (!title) {
+      setError("Ticket title is required.");
+      return;
+    }
+
+    if (!ticketForm.assignedTo) {
+      setError("Select an assignee from the project members.");
+      return;
+    }
+
+    if (!ticketForm.deadline) {
+      setError("Due date is required.");
       return;
     }
 
@@ -337,18 +373,14 @@ function MemberDashboard() {
     setError("");
 
     try {
-      const urls = ticketForm.urlsText
-        .split("\n")
-        .map((url) => url.trim())
-        .filter(Boolean);
-
       const data = await raiseTicket(selectedProject._id, {
-        title: ticketForm.title,
-        description: ticketForm.description,
+        title,
+        description,
         assignedTo: ticketForm.assignedTo,
         deadline: ticketForm.deadline,
-        sprintSelection: ticketForm.sprintSelection,
         status: ticketForm.status,
+        priority: ticketForm.priority,
+        type: ticketForm.type,
         urls,
       });
 
@@ -356,11 +388,10 @@ function MemberDashboard() {
       setTicketForm({
         ...emptyTicket,
         assignedTo: selectedProject.members?.[0]?._id || "",
-        sprintSelection: sprintOptions[0]?.value || "",
       });
       setMemberSearch("");
       setStatus(data.message);
-      routeTo("/member/tickets");
+      routeTo(`/member/projects/${selectedProject._id}/tickets`);
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -431,6 +462,25 @@ function MemberDashboard() {
       expected: projectExpectedTime(source),
     };
   }, [projects, selectedProject, tickets]);
+  const projectStatusCounts = useMemo(
+    () =>
+      projects.reduce(
+        (counts, project) => {
+          const tone = getProjectTone(project.status);
+          if (tone === "completed") {
+            return { ...counts, completed: counts.completed + 1 };
+          }
+
+          if (tone === "assigned") {
+            return { ...counts, assigned: counts.assigned + 1 };
+          }
+
+          return { ...counts, pending: counts.pending + 1 };
+        },
+        { assigned: 0, completed: 0, pending: 0 },
+      ),
+    [projects],
+  );
 
   return (
     <main className="workspace-shell">
@@ -448,9 +498,9 @@ function MemberDashboard() {
 
           <nav className="mt-8 space-y-2">
             <SidebarLink active={isDashboardPath} icon="01" label="Dashboard" onClick={() => routeTo("/member/dashboard")} />
-            <SidebarLink active={isProjectsPath || Boolean(projectIdFromPath) || Boolean(createTicketProjectId) || Boolean(createRequestProjectId)} icon="02" label="Projects" onClick={() => routeTo("/member/projects")} />
+            <SidebarLink active={isProjectsPath || Boolean(projectIdFromPath) || Boolean(projectTicketsPathId) || Boolean(createTicketProjectId) || Boolean(createRequestProjectId)} icon="02" label="Projects" onClick={() => routeTo("/member/projects")} />
             <SidebarLink active={isTicketsPath || Boolean(ticketIdFromPath)} icon="03" label="Issues" onClick={() => routeTo("/member/tickets")} />
-            <SidebarLink active={isRequestsPath} icon="04" label="Sprints / Requests" onClick={() => routeTo("/member/requests")} />
+            <SidebarLink active={isRequestsPath} icon="04" label="Requests" onClick={() => routeTo("/member/requests")} />
             <SidebarLink active={isDocumentsPath} icon="05" label="Documents" onClick={() => routeTo("/member/documents")} />
           </nav>
 
@@ -461,38 +511,50 @@ function MemberDashboard() {
         </aside>
 
         <section className="workspace-main">
-          <header className="workspace-header p-6">
-            <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-              <div>
-                <p className="eyebrow">Member Interface</p>
-                <h1 className="hero-title mt-3">Build work visibility like a project board</h1>
-                <p className="muted-text mt-3 max-w-3xl text-sm leading-6">
-                  Review assigned projects, update ticket status, and open delivery requests without leaving the workspace context.
-                </p>
+          {isDashboardPath ? (
+            <header className="workspace-header p-4 sm:p-5">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h1 className="text-xl font-semibold text-slate-900 sm:text-2xl">Hello, {session.user?.name || "Workspace member"}</h1>
+                  <p className="muted-text mt-1 text-sm">Here is what is moving across your projects today.</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button className="primary-button" onClick={() => routeTo("/member/projects")} type="button">
+                    Open projects
+                  </button>
+                  <button aria-label="Sync dashboard" className="icon-button" onClick={loadHomeData} title="Sync dashboard" type="button">
+                    <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24">
+                      <path d="M20 7v5h-5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+                      <path d="M4 17v-5h5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+                      <path d="M18.2 9A7 7 0 0 0 6.4 6.9L4 9" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+                      <path d="M5.8 15A7 7 0 0 0 17.6 17.1L20 15" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+                    </svg>
+                  </button>
+                </div>
               </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <button className="primary-button" onClick={() => routeTo("/member/projects")} type="button">
-                  Open projects
-                </button>
-                <button className="secondary-button" onClick={loadHomeData} type="button">
-                  Refresh
-                </button>
-              </div>
-            </div>
 
-            {error ? <p className="status-error mt-5">{error}</p> : null}
-            {status ? <p className="status-success mt-5">{status}</p> : null}
-          </header>
+              {error ? <p className="status-error mt-5">{error}</p> : null}
+              {status ? <p className="status-success mt-5">{status}</p> : null}
+            </header>
+          ) : (
+            <>
+              {error ? <p className="status-error mt-6">{error}</p> : null}
+              {status ? <p className="status-success mt-6">{status}</p> : null}
+            </>
+          )}
 
-          <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <MetricCard label="Assigned projects" value={projects.length} note="Project workspaces you can access" onClick={() => routeTo("/member/projects")} />
-            <MetricCard label="Open tickets" value={tickets.filter((ticket) => ticket.status === "open").length} note="Awaiting active execution" onClick={() => routeTo("/member/tickets")} />
-            <MetricCard label="In progress" value={tickets.filter((ticket) => ticket.status === "in_progress").length} note="Work currently underway" onClick={() => routeTo("/member/tickets")} />
-            <MetricCard label="Requests" value={requestsFeed.length} note="Admin-facing requests across projects" onClick={() => routeTo("/member/requests")} />
-          </section>
+          {isDashboardPath ? (
+            <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <MetricCard label="Pending projects" tone="pending" value={projectStatusCounts.pending} note="Waiting for kickoff or planning" onClick={() => routeTo("/member/projects")} />
+              <MetricCard label="Assigned projects" tone="assigned" value={projectStatusCounts.assigned} note="Active workspaces in delivery" onClick={() => routeTo("/member/projects")} />
+              <MetricCard label="Completed projects" tone="completed" value={projectStatusCounts.completed} note="Delivered workspaces" onClick={() => routeTo("/member/projects")} />
+              <MetricCard label="Open tickets" value={tickets.filter((ticket) => ticket.status === "open").length} note="Awaiting active execution" onClick={() => routeTo("/member/tickets")} />
+            </section>
+          ) : null}
 
           {isDashboardPath ? <DashboardHome documentsFeed={documentsFeed} requestsFeed={requestsFeed} summary={activeProjectSummary} tickets={tickets} /> : null}
           {isProjectsPath ? <ProjectsPage loading={loading} projects={projects} /> : null}
+          {projectTicketsPathId ? <TicketsPage loading={loading} onStatusChange={handleStatusChange} tickets={tickets.filter((ticket) => ticket.project?._id === projectTicketsPathId)} title={selectedProject ? `${selectedProject.name} Tickets` : "Project Tickets"} /> : null}
           {isTicketsPath ? <TicketsPage loading={loading} onStatusChange={handleStatusChange} tickets={tickets} /> : null}
           {isRequestsPath ? <RequestsPage loading={loading} requests={requestsFeed} /> : null}
           {isDocumentsPath ? <DocumentsPage documents={documentsFeed} loading={loading} /> : null}
@@ -510,7 +572,6 @@ function MemberDashboard() {
               onTicketChange={updateTicket}
               project={selectedProject}
               searchedMembers={searchedProjectMembers}
-              sprintOptions={sprintOptions}
               ticketForm={ticketForm}
             />
           ) : null}
@@ -541,133 +602,40 @@ function SidebarLink({ active, icon, label, onClick }) {
   );
 }
 
-function MetricCard({ label, value, note, onClick }) {
+function MetricCard({ label, value, note, onClick, tone = "neutral" }) {
   const Tag = onClick ? "button" : "article";
   return (
-    <Tag className={`metric-card w-full text-left ${onClick ? "cursor-pointer hover:border-violet-200 hover:shadow-md" : ""}`} onClick={onClick} type={onClick ? "button" : undefined}>
-      <p className="muted-text text-sm font-semibold">{label}</p>
-      <strong className="metric-value">{value}</strong>
+    <Tag className={`metric-card metric-card-${tone} w-full text-left ${onClick ? "cursor-pointer hover:shadow-md" : ""}`} onClick={onClick} type={onClick ? "button" : undefined}>
+      <div className="flex items-center gap-2">
+        <span className={`status-dot status-dot-${tone}`} />
+        <p className="muted-text text-sm font-semibold">{label}</p>
+      </div>
+      <strong className="mt-2 block text-2xl font-bold tracking-[-0.04em] text-slate-900">{value}</strong>
       <p className="muted-text mt-2 text-sm">{note}</p>
     </Tag>
   );
 }
 
 function DashboardHome({ documentsFeed, requestsFeed, summary, tickets }) {
-  const boardColumns = [
-    { key: "open", label: "Backlog" },
-    { key: "open", label: "To Do" },
-    { key: "in_progress", label: "In Progress" },
-    { key: "review", label: "In Review" },
-    { key: "resolved", label: "Done" },
-  ];
-
-  const groupedTickets = {
-    open: tickets.filter((ticket) => ticket.status === "open"),
-    in_progress: tickets.filter((ticket) => ticket.status === "in_progress"),
-    review: tickets.filter((ticket) => ticket.status === "review"),
-    resolved: tickets.filter((ticket) => ticket.status === "resolved"),
-  };
-
   return (
     <div className="mt-6 space-y-6">
-      <section className="surface-card p-6">
+      <section className="surface-card p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className="eyebrow">Project Focus</p>
-            <h2 className="section-title mt-3">{summary?.source?.name || "No project assigned"}</h2>
+            <p className="eyebrow">Current Focus</p>
+            <h2 className="mt-3 text-xl font-semibold tracking-[-0.03em] text-slate-900">{summary?.source?.name || "No project assigned"}</h2>
             <p className="muted-text mt-3 text-sm leading-6">
               {summary?.source?.description || "Assigned project details will appear here when a workspace is available."}
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
-            <InfoStat label="Current phase" value={summary?.currentPhase?.name || "Not set"} onClick={summary?.source?._id ? () => routeTo(`/member/projects/${summary.source._id}`) : undefined} />
-            <InfoStat label="Current sprint" value={summary?.currentSprint?.name || "Not set"} onClick={summary?.source?._id ? () => routeTo(`/member/projects/${summary.source._id}`) : undefined} />
             <InfoStat label="Expected delivery" value={summary?.expected || "Not set"} onClick={summary?.source?._id ? () => routeTo(`/member/projects/${summary.source._id}`) : undefined} />
             <InfoStat label="Planned items" value={summary?.planned ?? 0} onClick={summary?.source?._id ? () => routeTo(`/member/projects/${summary.source._id}`) : undefined} />
+            <InfoStat label="Open tickets" value={tickets.filter((ticket) => ticket.status === "open").length} onClick={() => routeTo("/member/tickets")} />
+            <InfoStat label="Requests" value={requestsFeed.length} onClick={() => routeTo("/member/requests")} />
           </div>
         </div>
       </section>
-
-      <section className="surface-card p-6">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="eyebrow">Board</p>
-            <h2 className="section-title mt-3">Kanban overview</h2>
-          </div>
-        </div>
-        <div className="board-scroll mt-6">
-          <div className="board-grid">
-            {boardColumns.map((column, index) => (
-              <div className="kanban-column" key={`${column.label}-${index}`}>
-                <div className="flex items-center justify-between">
-                  <h3 className="font-semibold text-slate-900">{column.label}</h3>
-                  <span className="glass-chip">{groupedTickets[column.key]?.length || 0}</span>
-                </div>
-                <div className="mt-4 space-y-3">
-                  {(groupedTickets[column.key] || []).slice(0, 3).map((ticket) => (
-                    <article className="task-card" key={`${column.label}-${ticket._id}`}>
-                      <p className="text-sm font-semibold text-slate-900">{ticket.title}</p>
-                      <p className="muted-text mt-2 text-sm">{ticket.description || "No description provided."}</p>
-                      <div className="mt-4 flex items-center justify-between">
-                        <span className="badge badge-primary">{normalizeStatus(ticket.status)}</span>
-                        <span className="muted-text text-xs">{formatDate(ticket.deadline)}</span>
-                      </div>
-                    </article>
-                  ))}
-                  {!groupedTickets[column.key]?.length ? <div className="surface-muted p-4 text-sm text-slate-500">No items</div> : null}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <div className="grid gap-6 xl:grid-cols-2">
-        <section className="surface-card p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="eyebrow">Requests</p>
-              <h2 className="section-title mt-3 text-xl">Team collaboration</h2>
-            </div>
-            <span className="glass-chip">{requestsFeed.length}</span>
-          </div>
-          <div className="mt-5 space-y-3">
-            {requestsFeed.slice(0, 4).map((requestItem) => (
-              <button className="surface-muted w-full p-4 text-left hover:border-violet-200" key={requestItem._id} onClick={() => routeTo("/member/requests")} type="button">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-semibold text-slate-900">{requestItem.title}</p>
-                    <p className="muted-text mt-1 text-sm">{requestItem.project?.name || "Project"}</p>
-                  </div>
-                  <span className="badge badge-info">{normalizeStatus(requestItem.status)}</span>
-                </div>
-                <p className="muted-text mt-3 text-sm">{requestItem.description || "No request details provided."}</p>
-              </button>
-            ))}
-            {!requestsFeed.length ? <EmptyCard copy="No requests raised yet." /> : null}
-          </div>
-        </section>
-
-        <section className="surface-card p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="eyebrow">Documents</p>
-              <h2 className="section-title mt-3 text-xl">Delivery resources</h2>
-            </div>
-            <span className="glass-chip">{documentsFeed.length}</span>
-          </div>
-          <div className="mt-5 space-y-3">
-            {documentsFeed.slice(0, 4).map((item) => (
-              <button className="surface-muted w-full p-4 text-left hover:border-violet-200" key={`${item.project._id}-${item.document.url}`} onClick={() => routeTo("/member/documents")} type="button">
-                <p className="font-semibold text-slate-900">{item.document.originalName || "Agreement document"}</p>
-                <p className="muted-text mt-1 text-sm">{item.project.name}</p>
-                <span className="secondary-button mt-4">Open document</span>
-              </button>
-            ))}
-            {!documentsFeed.length ? <EmptyCard copy="No documents attached to your projects yet." /> : null}
-          </div>
-        </section>
-      </div>
     </div>
   );
 }
@@ -682,68 +650,104 @@ function ProjectsPage({ loading, projects }) {
         </div>
         <span className="glass-chip">{projects.length}</span>
       </div>
-      <div className="mt-6 grid gap-4 lg:grid-cols-2">
-        {projects.map((project) => (
-          <article className="surface-muted p-5" key={project._id}>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900">{project.name}</h3>
-                <p className="muted-text mt-2 text-sm">{project.description || "No project description provided."}</p>
-              </div>
-              <span className="badge badge-primary">{normalizeStatus(project.status)}</span>
-            </div>
-            <div className="mt-5 grid gap-3 sm:grid-cols-3">
-              <InfoStat label="Phases" value={project.planning?.length || 0} />
-              <InfoStat label="Sprints" value={(project.planning || []).reduce((total, phase) => total + (phase.sprints?.length || 0), 0)} />
-              <InfoStat label="Planned" value={countPlannedTickets(project.planning)} />
-            </div>
-            <button className="primary-button mt-5" onClick={() => routeTo(`/member/projects/${project._id}`)} type="button">
-              Open project
-            </button>
-          </article>
-        ))}
-        {!projects.length ? <EmptyCard copy={loading ? "Loading projects..." : "No assigned projects yet."} /> : null}
-      </div>
+      {projects.length ? (
+        <div className="mt-6 overflow-x-auto">
+          <table className="project-table">
+            <thead>
+              <tr>
+                <th>Project</th>
+                <th>Status</th>
+                <th>Timeline</th>
+                <th>Phases</th>
+                <th>Sprints</th>
+                <th>Planned</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {projects.map((project) => {
+                const tone = getProjectTone(project.status);
+
+                return (
+                  <tr className={`project-row project-row-${tone}`} key={project._id}>
+                    <td>
+                      <div className="flex min-w-[240px] items-start gap-3">
+                        <span className={`status-dot status-dot-${tone} mt-1.5`} />
+                        <div>
+                          <p className="font-semibold text-slate-900">{project.name}</p>
+                          <p className="muted-text mt-1 line-clamp-2 text-sm">{project.description || "No project description provided."}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td>
+                      <span className={`status-pill status-pill-${tone}`}>{normalizeStatus(project.status)}</span>
+                    </td>
+                    <td>{projectExpectedTime(project)}</td>
+                    <td>{project.planning?.length || 0}</td>
+                    <td>{countProjectSprints(project)}</td>
+                    <td>{countPlannedTickets(project.planning)}</td>
+                    <td>
+                      <div className="flex min-w-[190px] flex-wrap gap-2">
+                        <button className="secondary-button px-3 py-2" onClick={() => routeTo(`/member/projects/${project._id}`)} type="button">
+                          Details
+                        </button>
+                        <button className="secondary-button px-3 py-2" onClick={() => routeTo(`/member/projects/${project._id}/tickets`)} type="button">
+                          Tickets
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <EmptyCard copy={loading ? "Loading projects..." : "No assigned projects yet."} />
+      )}
     </section>
   );
 }
 
-function TicketsPage({ loading, onStatusChange, tickets }) {
+function TicketsPage({ loading, onStatusChange, tickets, title = "Execution tickets" }) {
   return (
     <section className="surface-card mt-6 p-6">
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="eyebrow">Issues</p>
-          <h2 className="section-title mt-3">Execution tickets</h2>
+          <h2 className="section-title mt-3">{title}</h2>
         </div>
         <span className="glass-chip">{tickets.length}</span>
       </div>
-      <div className="mt-6 grid gap-4 lg:grid-cols-2">
+      <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {tickets.map((ticket) => (
           <article className="task-card" key={ticket._id}>
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-blue-700">{ticket.project?.name || "Project"}</p>
-                <h3 className="mt-2 text-lg font-semibold text-slate-900">{ticket.title}</h3>
+            <div className="flex flex-col gap-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold text-blue-700">{ticket.project?.name || "Project"}</p>
+                  <h3 className="mt-1 text-sm font-semibold text-slate-900">{ticket.title}</h3>
+                </div>
+                <span className="badge badge-primary">{normalizeStatus(ticket.status)}</span>
               </div>
-              <span className="badge badge-primary">{normalizeStatus(ticket.status)}</span>
-            </div>
-            <p className="muted-text mt-3 text-sm">{ticket.description || "No description provided."}</p>
-            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <p className="muted-text text-sm leading-5">{ticket.description || "No description provided."}</p>
+              <div className="grid gap-2">
+                <InfoStat label="Due date" value={formatDate(ticket.deadline)} />
+              </div>
               <label className="text-sm font-semibold text-slate-900">
                 Status
                 <select className="input-field" disabled={loading} onChange={(event) => onStatusChange(ticket._id, event.target.value)} value={ticket.status}>
                   <option value="open">Open</option>
                   <option value="in_progress">In Progress</option>
-                  <option value="review">In Review</option>
                   <option value="resolved">Done</option>
                 </select>
               </label>
-              <InfoStat label="Due date" value={formatDate(ticket.deadline)} />
+              <div className="flex justify-end">
+                <button className="secondary-button" onClick={() => routeTo(`/member/tickets/${ticket._id}`)} type="button">
+                  View detail
+                </button>
+              </div>
             </div>
-            <button className="secondary-button mt-4" onClick={() => routeTo(`/member/tickets/${ticket._id}`)} type="button">
-              View detail
-            </button>
           </article>
         ))}
         {!tickets.length ? <EmptyCard copy={loading ? "Loading tickets..." : "No assigned tickets yet."} /> : null}
@@ -805,6 +809,7 @@ function ProjectDetail({ project, projectClient, requests, tickets }) {
   const currentPhase = resolveCurrentPhase(project.planning || []);
   const currentSprint = resolveCurrentSprint(currentPhase);
   const projectTicketCount = tickets.filter((ticket) => ticket.project?._id === project._id).length;
+  const projectDocuments = projectClient?.agreementDocument?.url ? [projectClient.agreementDocument] : [];
 
   return (
     <section className="surface-card mt-6 p-6">
@@ -821,43 +826,52 @@ function ProjectDetail({ project, projectClient, requests, tickets }) {
           <button className="primary-button" onClick={() => routeTo(`/member/projects/${project._id}/tickets/new`)} type="button">
             Raise ticket
           </button>
+          <button className="secondary-button" onClick={() => routeTo(`/member/projects/${project._id}/tickets`)} type="button">
+            Open tickets
+          </button>
           <button className="secondary-button" onClick={() => routeTo(`/member/projects/${project._id}/requests/new`)} type="button">
             Raise request
           </button>
         </div>
       </div>
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        <div className="space-y-6">
+      <div className="mt-6 detail-layout">
+        <div className="detail-main-stack">
           <section className="surface-muted p-5">
-            <h3 className="text-lg font-semibold text-slate-900">Board summary</h3>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <InfoStat label="Client" value={project.clientEmail || "Not assigned"} />
-              <InfoStat label="Expected completion" value={projectExpectedTime(project)} />
-              <InfoStat label="Current phase" value={currentPhase?.name || "Not set"} />
-              <InfoStat label="Current sprint" value={currentSprint?.name || "Not set"} />
+            <h3 className="compact-panel-title">Project summary</h3>
+            <p className="muted-text mt-3 text-sm leading-6">{project.description || "No project description provided."}</p>
+            <div className="strip-grid mt-4">
+              <StripStat label="Status" value={normalizeStatus(project.status)} />
+              <StripStat label="Client" value={projectClient?.name || project.clientEmail || "Not assigned"} />
+              <StripStat label="Expected" value={projectExpectedTime(project)} />
+              <StripStat label="Phase" value={currentPhase?.name || "Not set"} />
+              <StripStat label="Sprint" value={currentSprint?.name || "Not set"} />
+              <StripStat label="Tickets" value={projectTicketCount} />
+              <StripStat label="Requests" value={requests.length} />
+              <StripStat label="Members" value={project.members?.length || 0} />
+              <StripStat label="Agreement" value={projectDocuments.length ? "Attached" : "Missing"} />
             </div>
           </section>
 
           <section className="surface-muted p-5">
             <div className="flex items-center justify-between gap-3">
-              <h3 className="text-lg font-semibold text-slate-900">Delivery plan</h3>
+              <h3 className="compact-panel-title">Delivery plan</h3>
               <span className="glass-chip">{countPlannedTickets(project.planning)} planned items</span>
             </div>
-            <div className="mt-5 space-y-4">
+            <div className="mt-5 grid gap-3 xl:grid-cols-2">
               {(project.planning || []).map((phase, phaseIndex) => (
                 <article className="surface-card p-4" key={`${project._id}-${phaseIndex}`}>
                   <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Phase {phaseIndex + 1}</p>
-                  <h4 className="mt-2 font-semibold text-slate-900">{phase.name || `Phase ${phaseIndex + 1}`}</h4>
-                  <p className="muted-text mt-2 text-sm">{phase.outcome || "No phase outcome defined."}</p>
-                  <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                  <h4 className="mt-2 text-sm font-semibold text-slate-900">{phase.name || `Phase ${phaseIndex + 1}`}</h4>
+                  <p className="muted-text mt-2 text-sm leading-5">{phase.outcome || "No phase outcome defined."}</p>
+                  <div className="mt-4 space-y-2">
                     {(phase.sprints || []).map((sprint, sprintIndex) => (
-                      <div className="rounded-xl border border-slate-200 bg-white p-4" key={`${phaseIndex}-${sprintIndex}`}>
+                      <div className="rounded-lg border border-slate-200 bg-white px-3 py-3" key={`${phaseIndex}-${sprintIndex}`}>
                         <div className="flex items-center justify-between gap-3">
-                          <span className="font-semibold text-slate-900">{sprint.name || `Sprint ${sprintIndex + 1}`}</span>
+                          <span className="text-sm font-semibold text-slate-900">{sprint.name || `Sprint ${sprintIndex + 1}`}</span>
                           <span className="badge badge-info">{formatDate(sprint.endDate)}</span>
                         </div>
-                        <p className="muted-text mt-2 text-sm">{sprint.outcome || "No sprint outcome defined."}</p>
+                        <p className="muted-text mt-2 text-sm leading-5">{sprint.outcome || "No sprint outcome defined."}</p>
                       </div>
                     ))}
                   </div>
@@ -868,34 +882,38 @@ function ProjectDetail({ project, projectClient, requests, tickets }) {
           </section>
         </div>
 
-        <aside className="space-y-6">
+        <aside className="detail-side-stack">
           <section className="surface-muted p-5">
-            <h3 className="text-lg font-semibold text-slate-900">Metadata</h3>
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="compact-panel-title">Resources</h3>
+              <span className="glass-chip">{projectDocuments.length}</span>
+            </div>
             <div className="mt-4 space-y-3">
-              <InfoRow label="Client name" value={projectClient?.name || "Not available"} />
-              <InfoRow label="Client email" value={projectClient?.email || project.clientEmail || "Not available"} />
-              <InfoRow label="Agreement" value={projectClient?.agreementDocument?.originalName || "No document attached"} />
-              <InfoRow label="Requests" value={requests.length} />
-              <InfoRow label="Raised tickets" value={projectTicketCount} />
+              {projectDocuments.map((document) => (
+                <a className="surface-card block p-4 hover:border-violet-200" href={document.url} key={document.url} rel="noreferrer" target="_blank">
+                  <p className="font-semibold text-slate-900">{document.originalName || "Agreement document"}</p>
+                  <p className="muted-text mt-1 text-sm">Open client document</p>
+                </a>
+              ))}
+              {!projectDocuments.length ? <EmptyCard copy="No project documents attached yet." /> : null}
             </div>
           </section>
 
           <section className="surface-muted p-5">
             <div className="flex items-center justify-between gap-3">
-              <h3 className="text-lg font-semibold text-slate-900">Team</h3>
+              <h3 className="compact-panel-title">Quick actions</h3>
               <span className="glass-chip">{project.members?.length || 0}</span>
             </div>
             <div className="mt-4 space-y-3">
-              {(project.members || []).map((member) => (
-                <div className="surface-card flex items-center justify-between gap-3 p-4" key={member._id}>
-                  <div>
-                    <p className="font-semibold text-slate-900">{member.name}</p>
-                    <p className="muted-text text-sm">{member.email}</p>
-                  </div>
-                  <span className="badge badge-primary">Owner</span>
-                </div>
-              ))}
-              {!project.members?.length ? <EmptyCard copy="No members assigned yet." /> : null}
+              <button className="secondary-button w-full justify-start" onClick={() => routeTo(`/member/projects/${project._id}/tickets`)} type="button">
+                View project tickets
+              </button>
+              <button className="secondary-button w-full justify-start" onClick={() => routeTo(`/member/projects/${project._id}/requests/new`)} type="button">
+                Create request
+              </button>
+              <button className="secondary-button w-full justify-start" onClick={() => routeTo(`/member/projects/${project._id}/tickets/new`)} type="button">
+                Create ticket
+              </button>
             </div>
           </section>
         </aside>
@@ -914,65 +932,50 @@ function TicketDetail({ loading, onBack, onStatusChange, ticket }) {
       <button className="secondary-button" onClick={onBack} type="button">
         Back to tickets
       </button>
-      <div className="mt-5 grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        <div className="space-y-6">
+      <div className="mt-5 detail-layout">
+        <div className="detail-main-stack">
           <section className="surface-muted p-5">
             <p className="eyebrow">Issue Detail</p>
             <h2 className="section-title mt-3">{ticket.title}</h2>
             <p className="muted-text mt-4 text-sm leading-6">{ticket.description || "No description provided."}</p>
+            <div className="strip-grid mt-4">
+              <StripStat label="Status" value={normalizeStatus(ticket.status)} />
+              <StripStat label="Assignee" value={ticket.assignedTo?.name || ticket.assignedTo?.email || "Unassigned"} />
+              <StripStat label="Due" value={formatDate(ticket.deadline)} />
+              <StripStat label="Sprint" value={ticket.sprint?.sprintName || "Not set"} />
+              <StripStat label="Project" value={ticket.project?.name || "-"} />
+              <StripStat label="Reporter" value="Member workspace" />
+            </div>
           </section>
 
           <section className="surface-muted p-5">
-            <h3 className="text-lg font-semibold text-slate-900">Comments</h3>
+            <h3 className="compact-panel-title">Comments</h3>
             <div className="empty-state mt-4">
               <p className="text-sm text-slate-600">Comments will appear here when collaborative updates are available.</p>
             </div>
           </section>
-
-          <section className="surface-muted p-5">
-            <h3 className="text-lg font-semibold text-slate-900">Subtasks</h3>
-            <div className="mt-4 space-y-3">
-              {[
-                "Clarify implementation notes",
-                "Confirm delivery with stakeholders",
-                "Attach supporting links",
-              ].map((item) => (
-                <label className="surface-card flex items-center gap-3 p-4" key={item}>
-                  <input type="checkbox" />
-                  <span className="text-sm text-slate-700">{item}</span>
-                </label>
-              ))}
-            </div>
-          </section>
         </div>
 
-        <aside className="space-y-6">
+        <aside className="detail-side-stack">
           <section className="surface-muted p-5">
-            <h3 className="text-lg font-semibold text-slate-900">Metadata</h3>
+            <h3 className="compact-panel-title">Status</h3>
             <label className="mt-4 block text-sm font-semibold text-slate-900">
               Status
               <select className="input-field" disabled={loading} onChange={(event) => onStatusChange(ticket._id, event.target.value)} value={ticket.status}>
                 <option value="open">Open</option>
                 <option value="in_progress">In Progress</option>
-                <option value="review">In Review</option>
                 <option value="resolved">Done</option>
               </select>
             </label>
-            <div className="mt-4 space-y-3">
-              <InfoRow label="Priority" value="Medium" />
-              <InfoRow label="Assignee" value={ticket.assignedTo?.name || ticket.assignedTo?.email || "Unassigned"} />
-              <InfoRow label="Reporter" value="Member workspace" />
-              <InfoRow label="Due date" value={formatDate(ticket.deadline)} />
-              <InfoRow label="Sprint" value={ticket.sprint?.sprintName || "Not set"} />
-            </div>
           </section>
 
           <section className="surface-muted p-5">
-            <h3 className="text-lg font-semibold text-slate-900">Attachments</h3>
+            <h3 className="compact-panel-title">Documents</h3>
             <div className="mt-4 space-y-3">
               {(ticket.urls || []).map((url) => (
-                <a className="secondary-button w-full justify-start" href={url} key={url} rel="noreferrer" target="_blank">
-                  {url}
+                <a className="surface-card block p-4 hover:border-violet-200" href={url} key={url} rel="noreferrer" target="_blank">
+                  <p className="font-semibold text-slate-900">Attachment link</p>
+                  <p className="muted-text mt-1 break-all text-sm">{url}</p>
                 </a>
               ))}
               {!ticket.urls?.length ? <EmptyCard copy="No attachments added to this issue yet." /> : null}
@@ -984,20 +987,7 @@ function TicketDetail({ loading, onBack, onStatusChange, ticket }) {
   );
 }
 
-function CreateTicketPage({
-  assignedMember,
-  loading,
-  memberSearch,
-  onBack,
-  onMemberSearch,
-  onSelectAssignee,
-  onSubmit,
-  onTicketChange,
-  project,
-  searchedMembers,
-  sprintOptions,
-  ticketForm,
-}) {
+function CreateTicketPage({ assignedMember, loading, memberSearch, onBack, onMemberSearch, onSelectAssignee, onSubmit, onTicketChange, project, searchedMembers, ticketForm }) {
   if (!project) {
     return <section className="surface-card mt-6 p-6 text-sm text-slate-500">Loading project...</section>;
   }
@@ -1008,52 +998,51 @@ function CreateTicketPage({
         Back to project
       </button>
       <div className="mt-5 grid gap-6 xl:grid-cols-[1fr_1fr]">
-        <section className="surface-muted p-5">
-          <p className="eyebrow">Context</p>
-          <h2 className="section-title mt-3">Raise ticket for {project.name}</h2>
-          <div className="mt-5 space-y-4">
-            {(project.planning || []).map((phase, phaseIndex) => (
-              <article className="surface-card p-4" key={`${project._id}-${phaseIndex}`}>
-                <h3 className="font-semibold text-slate-900">{phase.name || `Phase ${phaseIndex + 1}`}</h3>
-                <p className="muted-text mt-2 text-sm">{phase.outcome || "No phase outcome defined."}</p>
-              </article>
-            ))}
-            {!project.planning?.length ? <EmptyCard copy="No planning details added yet for this project." /> : null}
-          </div>
-        </section>
-
         <form className="surface-muted p-5" onSubmit={onSubmit}>
+          <p className="eyebrow">Raise Ticket</p>
+          <h2 className="section-title mt-3">Raise ticket for {project.name}</h2>
+          <p className="muted-text mt-3 text-sm leading-6">Capture the issue clearly, assign the right owner, and keep the ticket ready for immediate action.</p>
+
           <label className="block text-sm font-semibold text-slate-900" htmlFor="title">
             Title
-            <input className="input-field" id="title" name="title" onChange={onTicketChange} required value={ticketForm.title} />
+            <input className="input-field" id="title" name="title" onChange={onTicketChange} placeholder="Summarize the issue clearly" required value={ticketForm.title} />
           </label>
 
           <label className="mt-4 block text-sm font-semibold text-slate-900" htmlFor="deadline">
             Due date
-            <input className="input-field" id="deadline" name="deadline" onChange={onTicketChange} required type="date" value={ticketForm.deadline} />
+            <input className="input-field" id="deadline" min={getTodayInputValue()} name="deadline" onChange={onTicketChange} required type="date" value={ticketForm.deadline} />
           </label>
 
-          <label className="mt-4 block text-sm font-semibold text-slate-900" htmlFor="status">
-            Status
-            <select className="input-field" id="status" name="status" onChange={onTicketChange} value={ticketForm.status}>
-              <option value="open">Open</option>
-              <option value="in_progress">In Progress</option>
-              <option value="review">In Review</option>
-              <option value="resolved">Done</option>
-            </select>
-          </label>
+          <div className="mt-4 grid gap-4 sm:grid-cols-3">
+            <label className="block text-sm font-semibold text-slate-900" htmlFor="status">
+              Status
+              <select className="input-field" id="status" name="status" onChange={onTicketChange} value={ticketForm.status}>
+                <option value="open">Open</option>
+                <option value="in_progress">In Progress</option>
+                <option value="resolved">Done</option>
+              </select>
+            </label>
 
-          <label className="mt-4 block text-sm font-semibold text-slate-900" htmlFor="sprintSelection">
-            Sprint
-            <select className="input-field" id="sprintSelection" name="sprintSelection" onChange={onTicketChange} required value={ticketForm.sprintSelection}>
-              <option value="">Select sprint</option>
-              {sprintOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
+            <label className="block text-sm font-semibold text-slate-900" htmlFor="priority">
+              Priority
+              <select className="input-field" id="priority" name="priority" onChange={onTicketChange} value={ticketForm.priority}>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="critical">Critical</option>
+              </select>
+            </label>
+
+            <label className="block text-sm font-semibold text-slate-900" htmlFor="type">
+              Type
+              <select className="input-field" id="type" name="type" onChange={onTicketChange} value={ticketForm.type}>
+                <option value="task">Task</option>
+                <option value="bug">Bug</option>
+                <option value="feature">Feature</option>
+                <option value="improvement">Improvement</option>
+              </select>
+            </label>
+          </div>
 
           <label className="mt-4 block text-sm font-semibold text-slate-900" htmlFor="description">
             Description
@@ -1089,6 +1078,20 @@ function CreateTicketPage({
             {loading ? "Submitting..." : "Create ticket"}
           </button>
         </form>
+
+        <section className="surface-muted p-5">
+          <p className="eyebrow">Context</p>
+          <h2 className="section-title mt-3">Project context</h2>
+          <div className="mt-5 space-y-4">
+            {(project.planning || []).map((phase, phaseIndex) => (
+              <article className="surface-card p-4" key={`${project._id}-${phaseIndex}`}>
+                <h3 className="font-semibold text-slate-900">{phase.name || `Phase ${phaseIndex + 1}`}</h3>
+                <p className="muted-text mt-2 text-sm">{phase.outcome || "No phase outcome defined."}</p>
+              </article>
+            ))}
+            {!project.planning?.length ? <EmptyCard copy="No planning details added yet for this project." /> : null}
+          </div>
+        </section>
       </div>
     </section>
   );
@@ -1129,18 +1132,18 @@ function CreateRequestPage({ loading, onBack, onRequestChange, onSubmit, project
 function InfoStat({ label, value, onClick }) {
   const Tag = onClick ? "button" : "div";
   return (
-    <Tag className={`surface-card w-full p-4 text-left ${onClick ? "cursor-pointer hover:border-violet-200 hover:shadow-md" : ""}`} onClick={onClick} type={onClick ? "button" : undefined}>
-      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
-      <p className="mt-2 font-semibold text-slate-900">{value}</p>
+    <Tag className={`surface-card w-full p-3 text-left ${onClick ? "cursor-pointer hover:border-violet-200 hover:shadow-md" : ""}`} onClick={onClick} type={onClick ? "button" : undefined}>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-slate-900">{value}</p>
     </Tag>
   );
 }
 
-function InfoRow({ label, value }) {
+function StripStat({ label, value }) {
   return (
-    <div className="surface-card flex items-center justify-between gap-3 p-4">
-      <span className="text-sm font-semibold text-slate-900">{label}</span>
-      <span className="muted-text text-sm text-right">{value}</span>
+    <div className="strip-card flex-col items-start">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
+      <p className="text-sm font-semibold text-slate-900">{value}</p>
     </div>
   );
 }
