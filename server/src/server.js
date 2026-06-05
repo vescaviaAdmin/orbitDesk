@@ -2,15 +2,17 @@ import buildApp from "./app.js";
 import env from "./config/env.js";
 
 async function startServer() {
-  const app = await buildApp();
-
   try {
+    const app = await buildApp();
+
     await app.listen({
       port: env.port,
       host: env.host,
     });
+
+    app.log.info(`Server listening on ${env.host}:${env.port}`);
   } catch (error) {
-    app.log.error(error);
+    console.error("Server startup failed:", error);
     process.exit(1);
   }
 }
