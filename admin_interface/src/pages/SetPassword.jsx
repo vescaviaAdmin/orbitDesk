@@ -25,6 +25,7 @@ function SetPassword() {
   const token = useMemo(() => new URLSearchParams(window.location.search).get("token") || "", []);
   const role = useMemo(() => new URLSearchParams(window.location.search).get("role") || "member", []);
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -52,15 +53,24 @@ function SetPassword() {
         <h1 className="mt-3 text-3xl font-bold text-white">Set password</h1>
         <label className="mt-6 block text-sm font-semibold text-white" htmlFor="password">
           New password
-          <input
-            className="neo-input"
-            id="password"
-            minLength="8"
-            onChange={(event) => setPassword(event.target.value)}
-            required
-            type="password"
-            value={password}
-          />
+          <div className="mt-2 flex items-center gap-2">
+            <input
+              className="neo-input mt-0"
+              id="password"
+              minLength="8"
+              onChange={(event) => setPassword(event.target.value)}
+              required
+              type={showPassword ? "text" : "password"}
+              value={password}
+            />
+            <button
+              className="neo-button-secondary h-11 shrink-0 px-3"
+              onClick={() => setShowPassword((current) => !current)}
+              type="button"
+            >
+              {showPassword ? "Hide" : "View"}
+            </button>
+          </div>
         </label>
 
         {!token ? <p className="status-error mt-4">Missing setup token.</p> : null}

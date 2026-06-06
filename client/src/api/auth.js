@@ -45,3 +45,10 @@ export function loginMember(credentials) {
     body: JSON.stringify(credentials),
   });
 }
+
+export function forgotMemberPassword(email) {
+  return request("/auth/member/forgot-password", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}

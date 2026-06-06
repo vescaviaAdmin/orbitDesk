@@ -1,6 +1,7 @@
 import Member from "../../models/Member.js";
+import { sendMemberPasswordReset } from "../mail/mail.service.js";
 import { compareSecret, hashSecret } from "../../utils/password.js";
-import { createSessionToken } from "../../utils/tokens.js";
+import { createSecureToken, createSessionToken } from "../../utils/tokens.js";
 import { normalizeEmail } from "../../utils/identity.js";
 
 async function memberAuthRoutes(fastify) {
@@ -29,6 +30,28 @@ async function memberAuthRoutes(fastify) {
     };
   });
 
+  fastify.post("/auth/member/forgot-password", async (request) => {
+    const normalizedEmail = normalizeEmail(request.body?.email);
+
+    if (!normalizedEmail) {
+      throw fastify.httpErrors.badRequest("email is required");
+    }
+
+    const member = await Member.findOne({ email: normalizedEmail });
+
+    if (member && member.status === "active") {
+      const resetToken = createSecureToken();
+      member.passwordSetTokenHash = await hashSecret(resetToken);
+      member.passwordSetTokenExpiresAt = new Date(Date.now() + 60 * 60 * 1000);
+      await member.save();
+      await sendMemberPasswordReset(fastify, member, resetToken);
+    }
+
+    return {
+      message: "If that member account exists, a reset link has been sent.",
+    };
+  });
+
   fastify.post("/auth/member/set-password", async (request) => {
     const { token, password } = request.body || {};
 
@@ -38,7 +61,7 @@ async function memberAuthRoutes(fastify) {
 
     const members = await Member.find({
       passwordSetTokenExpiresAt: { $gt: new Date() },
-      status: "invited",
+      status: { $in: ["invited", "active"] },
     });
 
     const member = await members.reduce(async (matchedPromise, currentMember) => {

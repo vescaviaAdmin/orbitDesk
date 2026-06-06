@@ -30,6 +30,18 @@ function routeTo(path) {
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
+function buildTicketPath(ticketId) {
+  return `/member/tickets/${ticketId}`;
+}
+
+function buildTicketShareUrl(ticketId) {
+  if (typeof window === "undefined") {
+    return buildTicketPath(ticketId);
+  }
+
+  return new URL(buildTicketPath(ticketId), window.location.origin).toString();
+}
+
 function formatDate(value) {
   if (!value) {
     return "-";
@@ -149,6 +161,8 @@ function MemberDashboard() {
   const [ticketForm, setTicketForm] = useState(emptyTicket);
   const [requestForm, setRequestForm] = useState(emptyRequest);
   const [memberSearch, setMemberSearch] = useState("");
+  const [shareTicket, setShareTicket] = useState(null);
+  const [copyStatus, setCopyStatus] = useState("");
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -338,6 +352,37 @@ function MemberDashboard() {
     setSelectedTicket((current) => (current?._id === updatedTicket._id ? { ...current, ...updatedTicket } : current));
   }
 
+  function openShareTicket(ticket, options = {}) {
+    if (!ticket?._id) {
+      return;
+    }
+
+    setCopyStatus("");
+    setShareTicket({
+      closePath: options.closePath || "",
+      title: ticket.title || "Ticket",
+      url: buildTicketShareUrl(ticket._id),
+    });
+  }
+
+  function closeShareTicket() {
+    setShareTicket(null);
+    setCopyStatus("");
+  }
+
+  async function handleCopyTicketLink() {
+    if (!shareTicket?.url) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(shareTicket.url);
+      setCopyStatus("Link copied");
+    } catch (copyError) {
+      setCopyStatus("Copy failed");
+    }
+  }
+
   async function handleTicketSubmit(event) {
     event.preventDefault();
 
@@ -391,7 +436,9 @@ function MemberDashboard() {
       });
       setMemberSearch("");
       setStatus(data.message);
-      routeTo(`/member/projects/${selectedProject._id}/tickets`);
+      openShareTicket(data.ticket, {
+        closePath: `/member/projects/${selectedProject._id}/tickets`,
+      });
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -559,7 +606,15 @@ function MemberDashboard() {
           {isRequestsPath ? <RequestsPage loading={loading} requests={requestsFeed} /> : null}
           {isDocumentsPath ? <DocumentsPage documents={documentsFeed} loading={loading} /> : null}
           {projectIdFromPath ? <ProjectDetail project={selectedProject} projectClient={projectClient} requests={projectRequests} tickets={tickets} /> : null}
-          {ticketIdFromPath ? <TicketDetail loading={loading} onBack={() => routeTo("/member/tickets")} onStatusChange={handleStatusChange} ticket={selectedTicket} /> : null}
+          {ticketIdFromPath ? (
+            <TicketDetail
+              loading={loading}
+              onBack={() => routeTo("/member/tickets")}
+              onShare={() => openShareTicket(selectedTicket)}
+              onStatusChange={handleStatusChange}
+              ticket={selectedTicket}
+            />
+          ) : null}
           {createTicketProjectId ? (
             <CreateTicketPage
               assignedMember={assignedMember}
@@ -587,6 +642,26 @@ function MemberDashboard() {
           ) : null}
         </section>
       </div>
+
+      {shareTicket ? (
+        <ShareTicketModal
+          copyStatus={copyStatus}
+          onClose={() => {
+            const closePath = shareTicket.closePath;
+            closeShareTicket();
+            if (closePath) {
+              routeTo(closePath);
+            }
+          }}
+          onCopy={handleCopyTicketLink}
+          onOpen={() => {
+            const ticketPath = new URL(shareTicket.url).pathname;
+            closeShareTicket();
+            routeTo(ticketPath);
+          }}
+          ticket={shareTicket}
+        />
+      ) : null}
     </main>
   );
 }
@@ -922,16 +997,21 @@ function ProjectDetail({ project, projectClient, requests, tickets }) {
   );
 }
 
-function TicketDetail({ loading, onBack, onStatusChange, ticket }) {
+function TicketDetail({ loading, onBack, onShare, onStatusChange, ticket }) {
   if (!ticket) {
     return <section className="surface-card mt-6 p-6 text-sm text-slate-500">Loading ticket...</section>;
   }
 
   return (
     <section className="surface-card mt-6 p-6">
-      <button className="secondary-button" onClick={onBack} type="button">
-        Back to tickets
-      </button>
+      <div className="flex flex-wrap items-center gap-3">
+        <button className="secondary-button" onClick={onBack} type="button">
+          Back to tickets
+        </button>
+        <button className="secondary-button" onClick={onShare} type="button">
+          Share
+        </button>
+      </div>
       <div className="mt-5 detail-layout">
         <div className="detail-main-stack">
           <section className="surface-muted p-5">
@@ -1126,6 +1206,46 @@ function CreateRequestPage({ loading, onBack, onRequestChange, onSubmit, project
         </button>
       </form>
     </section>
+  );
+}
+
+function ShareTicketModal({ copyStatus, onClose, onCopy, onOpen, ticket }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4">
+      <div className="surface-card w-full max-w-xl p-6">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="eyebrow">Share Ticket</p>
+            <h2 className="section-title mt-3">Share {ticket.title}</h2>
+            <p className="muted-text mt-3 text-sm leading-6">Copy this direct ticket link or open the ticket detail page.</p>
+          </div>
+          <button aria-label="Close share ticket dialog" className="icon-button" onClick={onClose} type="button">
+            <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24">
+              <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+            </svg>
+          </button>
+        </div>
+
+        <label className="mt-5 block text-sm font-semibold text-slate-900" htmlFor="share-ticket-link">
+          Ticket link
+          <input className="input-field" id="share-ticket-link" readOnly value={ticket.url} />
+        </label>
+
+        {copyStatus ? <p className="muted-text mt-3 text-sm">{copyStatus}</p> : null}
+
+        <div className="mt-6 flex flex-wrap justify-end gap-3">
+          <button className="secondary-button" onClick={onClose} type="button">
+            Close
+          </button>
+          <button className="secondary-button" onClick={onOpen} type="button">
+            Open ticket
+          </button>
+          <button className="primary-button" onClick={onCopy} type="button">
+            Copy link
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

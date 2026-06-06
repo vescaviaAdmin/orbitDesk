@@ -48,6 +48,13 @@ export function loginAdmin(credentials) {
   });
 }
 
+export function forgotAdminPassword(email) {
+  return request("/auth/admin/forgot-password", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
 export function getAdminSessionStatus() {
   return request("/admin/session");
 }

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import AuthShell from "../components/auth/AuthShell";
-import { loginClient, loginWithCredentials } from "../api/auth";
+import { forgotMemberPassword, loginClient, loginMember, loginWithCredentials } from "../api/auth";
 
 function persistSession(session) {
   if (session.role === "admin") {
@@ -18,15 +18,25 @@ function persistSession(session) {
 function Login() {
   const [clientOtpSent, setClientOtpSent] = useState(false);
   const [form, setForm] = useState({ email: "", password: "", otp: "" });
+  const [showPassword, setShowPassword] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   function updateField(event) {
+    const { name, value } = event.target;
+
     setForm((current) => ({
       ...current,
-      [event.target.name]: event.target.value,
+      [name]: value,
+      ...(name === "email" || name === "password" ? { otp: "" } : {}),
     }));
+
+    if (name === "email" || name === "password") {
+      setClientOtpSent(false);
+      setStatus("");
+      setError("");
+    }
   }
 
   async function handleLogin(event) {
@@ -42,10 +52,21 @@ function Login() {
         return;
       }
 
-      const result = await loginWithCredentials({
-        email: form.email,
-        password: form.password,
-      });
+      let result;
+
+      try {
+        result = await loginWithCredentials({
+          email: form.email,
+          password: form.password,
+        });
+      } catch (requestError) {
+        result = await loginMember({
+          email: form.email,
+          password: form.password,
+        }).catch(() => {
+          throw requestError;
+        });
+      }
 
       if (result.requiresOtp) {
         setClientOtpSent(true);
@@ -54,6 +75,27 @@ function Login() {
       }
 
       persistSession(result);
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleForgotPassword() {
+    if (!form.email.trim()) {
+      setError("Enter your member email first.");
+      setStatus("");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setStatus("");
+
+    try {
+      const result = await forgotMemberPassword(form.email);
+      setStatus(result.message);
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -91,15 +133,24 @@ function Login() {
           <label className="text-sm font-semibold text-white" htmlFor="password">
             Password
           </label>
-          <input
-            className="neo-input"
-            id="password"
-            name="password"
-            onChange={updateField}
-            type="password"
-            value={form.password}
-            required
-          />
+          <div className="mt-2 flex items-center gap-2">
+            <input
+              className="neo-input mt-0"
+              id="password"
+              name="password"
+              onChange={updateField}
+              type={showPassword ? "text" : "password"}
+              value={form.password}
+              required
+            />
+            <button
+              className="neo-button-secondary h-11 shrink-0 px-3"
+              onClick={() => setShowPassword((current) => !current)}
+              type="button"
+            >
+              {showPassword ? "Hide" : "View"}
+            </button>
+          </div>
         </div>
 
         {clientOtpSent ? (
@@ -130,6 +181,14 @@ function Login() {
         >
           {loading ? "Working..." : clientOtpSent ? "Verify OTP" : "Continue"}
         </button>
+
+        {!clientOtpSent ? (
+          <div className="flex justify-end">
+            <button className="text-sm font-semibold text-cyan-300" disabled={loading} onClick={handleForgotPassword} type="button">
+              Forgot member password?
+            </button>
+          </div>
+        ) : null}
       </form>
     </AuthShell>
   );

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { loginAdmin, setAdminSession } from "../api/admin";
+import { forgotAdminPassword, loginAdmin, setAdminSession } from "../api/admin";
 
 function routeTo(path) {
   window.history.pushState({}, "", path);
@@ -8,6 +8,8 @@ function routeTo(path) {
 
 function AdminLogin() {
   const [form, setForm] = useState({ email: "", password: "" });
+  const [showPassword, setShowPassword] = useState(false);
+  const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -22,11 +24,33 @@ function AdminLogin() {
     event.preventDefault();
     setLoading(true);
     setError("");
+    setStatus("");
 
     try {
       const session = await loginAdmin(form);
       setAdminSession(session);
       routeTo(session.redirectTo || "/");
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleForgotPassword() {
+    if (!form.email.trim()) {
+      setError("Enter your admin email first.");
+      setStatus("");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setStatus("");
+
+    try {
+      const result = await forgotAdminPassword(form.email);
+      setStatus(result.message);
     } catch (requestError) {
       setError(requestError.message);
     } finally {
@@ -81,18 +105,28 @@ function AdminLogin() {
           </label>
 
             <label className="block text-sm font-semibold text-white" htmlFor="password">
-            Password
-            <input
-              className="neo-input"
-              id="password"
-              name="password"
-              onChange={updateField}
-              required
-              type="password"
-              value={form.password}
-            />
-          </label>
+              Password
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  className="neo-input mt-0"
+                  id="password"
+                  name="password"
+                  onChange={updateField}
+                  required
+                  type={showPassword ? "text" : "password"}
+                  value={form.password}
+                />
+                <button
+                  className="neo-button-secondary h-11 shrink-0 px-3"
+                  onClick={() => setShowPassword((current) => !current)}
+                  type="button"
+                >
+                  {showPassword ? "Hide" : "View"}
+                </button>
+              </div>
+            </label>
 
+            {status ? <p className="status-success">{status}</p> : null}
             {error ? <p className="status-error">{error}</p> : null}
 
             <button className="neo-button h-11 w-full" disabled={loading} type="submit">
@@ -101,7 +135,9 @@ function AdminLogin() {
           </form>
 
           <div className="muted-text mt-5 flex items-center justify-between text-sm">
-            <span>Need an account?</span>
+            <button className="font-semibold text-cyan-300" disabled={loading} onClick={handleForgotPassword} type="button">
+              Forgot password?
+            </button>
             <button className="font-semibold text-cyan-300" onClick={() => window.location.assign("/get-started")} type="button">
               Get started
             </button>
