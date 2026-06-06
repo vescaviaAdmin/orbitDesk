@@ -159,12 +159,8 @@ CLOUDINARY_CLOUD_NAME=
 CLOUDINARY_API_KEY=
 CLOUDINARY_API_SECRET=
 CLOUDINARY_AGREEMENT_FOLDER=orbitdesk/agreements
-SMTP_HOST=
-SMTP_PORT=587
-SMTP_SECURE=false
-SMTP_USER=
-SMTP_PASS=
-SMTP_FROM=OrbitDesk <no-reply@orbitdesk.local>
+RESEND_API_KEY=
+RESEND_FROM=OrbitDesk <onboarding@resend.dev>
 ```
 
 ### `admin_interface/.env`
@@ -190,9 +186,7 @@ Import the repo into Render and choose the Blueprint deployment flow. Before the
 - `CLOUDINARY_CLOUD_NAME`
 - `CLOUDINARY_API_KEY`
 - `CLOUDINARY_API_SECRET`
-- `SMTP_HOST`
-- `SMTP_USER`
-- `SMTP_PASS`
+- `RESEND_API_KEY`
 - `VITE_ADMIN_API_SECRET`
 
 Production notes:

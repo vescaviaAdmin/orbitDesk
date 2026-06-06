@@ -32,13 +32,9 @@ const env = {
     "http://localhost:4173",
     "http://localhost:4174",
   ]),
-  smtp: {
-    host: process.env.SMTP_HOST || "",
-    port: Number(process.env.SMTP_PORT || 587),
-    secure: process.env.SMTP_SECURE === "true",
-    user: process.env.SMTP_USER || "",
-    pass: process.env.SMTP_PASS || "",
-    from: process.env.SMTP_FROM || "OrbitDesk <no-reply@orbitdesk.local>",
+  resend: {
+    apiKey: process.env.RESEND_API_KEY || "",
+    from: process.env.RESEND_FROM || "OrbitDesk <onboarding@resend.dev>",
   },
 };
 

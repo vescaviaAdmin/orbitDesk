@@ -1,34 +1,22 @@
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import env from "../../config/env.js";
 
-function createTransport() {
-  if (!env.smtp.host || !env.smtp.user || !env.smtp.pass) {
-    return null;
-  }
-
-  return nodemailer.createTransport({
-    host: env.smtp.host,
-    port: env.smtp.port,
-    secure: env.smtp.secure,
-    auth: {
-      user: env.smtp.user,
-      pass: env.smtp.pass,
-    },
-  });
-}
-
 async function sendMail(app, message) {
-  const transport = createTransport();
-
-  if (!transport) {
-    app.log.info({ to: message.to, subject: message.subject, text: message.text }, "Mail skipped; SMTP is not configured");
+  if (!env.resend.apiKey) {
+    app.log.info({ to: message.to, subject: message.subject, text: message.text }, "Mail skipped; Resend is not configured");
     return;
   }
 
-  await transport.sendMail({
-    from: env.smtp.from,
+  const resend = new Resend(env.resend.apiKey);
+
+  const { error } = await resend.emails.send({
+    from: env.resend.from,
     ...message,
   });
+
+  if (error) {
+    throw new Error(error.message || "Failed to send email with Resend");
+  }
 }
 
 export async function sendClientOtp(app, client, otp) {
