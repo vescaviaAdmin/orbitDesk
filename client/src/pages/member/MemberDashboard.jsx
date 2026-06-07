@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { cloneElement, useEffect, useId, useMemo, useState } from "react";
 import {
   getMemberProject,
   getMemberTicket,
@@ -8,6 +8,23 @@ import {
   raiseTicket,
   updateMemberTicketStatus,
 } from "../../api/member";
+import StatusBadge from "../../components/member/StatusBadge";
+import StatusSelect from "../../components/member/StatusSelect";
+import ProjectTable from "../../components/tables/ProjectTable";
+import TableSection from "../../components/tables/TableSection";
+import TicketFilters from "../../components/tables/TicketFilters";
+import TicketTable from "../../components/tables/TicketTable";
+import { useToast } from "../../components/ui/Toast";
+import {
+  countPlannedTickets,
+  filterAndSortTickets,
+  formatDate,
+  getProjectTone,
+  getStatusTone,
+  normalizeStatus,
+  projectExpectedTime,
+} from "../../lib/member-utils";
+import { routeTo } from "../../lib/navigation";
 
 const emptyTicket = {
   title: "",
@@ -25,10 +42,17 @@ const emptyRequest = {
   description: "",
 };
 
-function routeTo(path) {
-  window.history.pushState({}, "", path);
-  window.dispatchEvent(new PopStateEvent("popstate"));
-}
+const PROJECT_DETAIL_TABS = [
+  { key: "overview", label: "Overview" },
+  { key: "issues", label: "Issues" },
+];
+
+const NAV_ITEMS = [
+  ["dashboard", "Dashboard", "/member/dashboard"],
+  ["projects", "Projects", "/member/projects"],
+  ["requests", "Requests", "/member/requests"],
+  ["documents", "Documents", "/member/documents"],
+];
 
 function buildTicketPath(ticketId) {
   return `/member/tickets/${ticketId}`;
@@ -42,17 +66,6 @@ function buildTicketShareUrl(ticketId) {
   return new URL(buildTicketPath(ticketId), window.location.origin).toString();
 }
 
-function formatDate(value) {
-  if (!value) {
-    return "-";
-  }
-
-  return new Date(value).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
 
 function getTodayInputValue() {
   return new Date().toISOString().split("T")[0];
@@ -100,57 +113,20 @@ function resolveCurrentSprint(phase) {
   );
 }
 
-function countPlannedTickets(planning = []) {
-  return planning.reduce(
-    (total, phase) =>
-      total +
-      (phase.sprints || []).reduce((sprintTotal, sprint) => sprintTotal + (sprint.tickets?.length || 0), 0),
-    0,
-  );
-}
-
-function projectExpectedTime(project) {
-  const datedPhases = (project?.planning || []).filter((phase) => phase.endDate);
-  if (!datedPhases.length) {
-    return "Timeline not set";
-  }
-
-  const latestPhase = datedPhases.reduce((latest, phase) =>
-    new Date(phase.endDate) > new Date(latest.endDate) ? phase : latest,
-  );
-
-  return formatDate(latestPhase.endDate);
-}
-
-function normalizeStatus(status) {
-  return (status || "open").replaceAll("_", " ");
-}
-
-function getProjectTone(status) {
-  const normalized = (status || "").toLowerCase();
-
-  if (["completed", "done", "resolved"].includes(normalized)) {
-    return "completed";
-  }
-
-  if (["active", "assigned", "in_progress", "review"].includes(normalized)) {
-    return "assigned";
-  }
-
-  if (["planned", "pending", "open"].includes(normalized)) {
-    return "pending";
-  }
-
-  return "neutral";
-}
-
-function countProjectSprints(project) {
-  return (project.planning || []).reduce((total, phase) => total + (phase.sprints?.length || 0), 0);
+function getInitials(value) {
+  return (value || "OD")
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "OD";
 }
 
 function MemberDashboard() {
+  const toast = useToast();
   const session = JSON.parse(localStorage.getItem("orbitdesk_session") || "{}");
   const [path, setPath] = useState(window.location.pathname);
+  const [search, setSearch] = useState(window.location.search);
   const [projects, setProjects] = useState([]);
   const [tickets, setTickets] = useState([]);
   const [selectedProject, setSelectedProject] = useState(null);
@@ -162,14 +138,11 @@ function MemberDashboard() {
   const [requestForm, setRequestForm] = useState(emptyRequest);
   const [memberSearch, setMemberSearch] = useState("");
   const [shareTicket, setShareTicket] = useState(null);
-  const [copyStatus, setCopyStatus] = useState("");
-  const [status, setStatus] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
 
   const isDashboardPath = path === "/member" || path === "/member/dashboard";
   const isProjectsPath = path === "/member/projects";
-  const isTicketsPath = path === "/member/tickets";
   const isRequestsPath = path === "/member/requests";
   const isDocumentsPath = path === "/member/documents";
   const projectTicketsPathId = path.match(/^\/member\/projects\/([^/]+)\/tickets$/)?.[1] || "";
@@ -219,22 +192,34 @@ function MemberDashboard() {
   useEffect(() => {
     function handleRouteChange() {
       setPath(window.location.pathname);
+      setSearch(window.location.search);
     }
 
     window.addEventListener("popstate", handleRouteChange);
     return () => window.removeEventListener("popstate", handleRouteChange);
   }, []);
 
+  useEffect(() => {
+    if (path === "/member/tickets") {
+      routeTo("/member/dashboard");
+    }
+  }, [path]);
+
+  useEffect(() => {
+    if (projectTicketsPathId) {
+      routeTo(`/member/projects/${projectTicketsPathId}?tab=issues`);
+    }
+  }, [projectTicketsPathId]);
+
   async function loadHomeData() {
     setLoading(true);
-    setError("");
 
     try {
       const [projectData, ticketData] = await Promise.all([listMemberProjects(), listMemberTickets()]);
       setProjects(projectData.projects || []);
       setTickets(ticketData.tickets || []);
     } catch (requestError) {
-      setError(requestError.message);
+      toast.error(requestError.message);
     } finally {
       setLoading(false);
     }
@@ -242,8 +227,6 @@ function MemberDashboard() {
 
   async function loadProject(projectId) {
     setLoading(true);
-    setStatus("");
-    setError("");
 
     try {
       const data = await getMemberProject(projectId);
@@ -256,7 +239,7 @@ function MemberDashboard() {
       });
       setRequestForm(emptyRequest);
     } catch (requestError) {
-      setError(requestError.message);
+      toast.error(requestError.message);
     } finally {
       setLoading(false);
     }
@@ -264,13 +247,12 @@ function MemberDashboard() {
 
   async function loadTicket(ticketId) {
     setLoading(true);
-    setError("");
 
     try {
       const data = await getMemberTicket(ticketId);
       setSelectedTicket(data.ticket);
     } catch (requestError) {
-      setError(requestError.message);
+      toast.error(requestError.message);
     } finally {
       setLoading(false);
     }
@@ -283,7 +265,6 @@ function MemberDashboard() {
     }
 
     setLoading(true);
-    setError("");
 
     try {
       const details = await Promise.all(projects.map((project) => getMemberProject(project._id)));
@@ -295,7 +276,7 @@ function MemberDashboard() {
         })),
       );
     } catch (requestError) {
-      setError(requestError.message);
+      toast.error(requestError.message);
     } finally {
       setLoading(false);
     }
@@ -357,7 +338,6 @@ function MemberDashboard() {
       return;
     }
 
-    setCopyStatus("");
     setShareTicket({
       closePath: options.closePath || "",
       title: ticket.title || "Ticket",
@@ -367,7 +347,6 @@ function MemberDashboard() {
 
   function closeShareTicket() {
     setShareTicket(null);
-    setCopyStatus("");
   }
 
   async function handleCopyTicketLink() {
@@ -377,9 +356,9 @@ function MemberDashboard() {
 
     try {
       await navigator.clipboard.writeText(shareTicket.url);
-      setCopyStatus("Link copied");
+      toast.success("Link copied");
     } catch (copyError) {
-      setCopyStatus("Copy failed");
+      toast.error("Copy failed");
     }
   }
 
@@ -387,7 +366,7 @@ function MemberDashboard() {
     event.preventDefault();
 
     if (!selectedProject) {
-      setError("Select a project before raising a ticket.");
+      toast.error("Select a project before raising a ticket.");
       return;
     }
 
@@ -399,23 +378,21 @@ function MemberDashboard() {
       .filter(Boolean);
 
     if (!title) {
-      setError("Ticket title is required.");
+      toast.error("Ticket title is required.");
       return;
     }
 
     if (!ticketForm.assignedTo) {
-      setError("Select an assignee from the project members.");
+      toast.error("Select an assignee from the project members.");
       return;
     }
 
     if (!ticketForm.deadline) {
-      setError("Due date is required.");
+      toast.error("Due date is required.");
       return;
     }
 
-    setLoading(true);
-    setStatus("");
-    setError("");
+    setSubmitting(true);
 
     try {
       const data = await raiseTicket(selectedProject._id, {
@@ -435,14 +412,14 @@ function MemberDashboard() {
         assignedTo: selectedProject.members?.[0]?._id || "",
       });
       setMemberSearch("");
-      setStatus(data.message);
+      toast.success(data.message);
       openShareTicket(data.ticket, {
-        closePath: `/member/projects/${selectedProject._id}/tickets`,
+        closePath: `/member/projects/${selectedProject._id}?tab=issues`,
       });
     } catch (requestError) {
-      setError(requestError.message);
+      toast.error(requestError.message);
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   }
 
@@ -453,9 +430,7 @@ function MemberDashboard() {
       return;
     }
 
-    setLoading(true);
-    setStatus("");
-    setError("");
+    setSubmitting(true);
 
     try {
       const data = await raiseRequest(selectedProject._id, {
@@ -465,50 +440,29 @@ function MemberDashboard() {
 
       setProjectRequests((current) => [data.request, ...current]);
       setRequestForm(emptyRequest);
-      setStatus(data.message);
+      toast.success(data.message);
       routeTo("/member/requests");
     } catch (requestError) {
-      setError(requestError.message);
+      toast.error(requestError.message);
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   }
 
   async function handleStatusChange(ticketId, nextStatus) {
     setLoading(true);
-    setStatus("");
-    setError("");
 
     try {
       const data = await updateMemberTicketStatus(ticketId, nextStatus);
       applyTicketUpdate(data.ticket);
-      setStatus(data.message);
+      toast.success(data.message);
     } catch (requestError) {
-      setError(requestError.message);
+      toast.error(requestError.message);
     } finally {
       setLoading(false);
     }
   }
 
-  const activeProjectSummary = useMemo(() => {
-    if (!projects.length) {
-      return null;
-    }
-
-    const source = selectedProject || projects[0];
-    const currentPhase = resolveCurrentPhase(source.planning || []);
-    const currentSprint = resolveCurrentSprint(currentPhase);
-    const relatedTickets = tickets.filter((ticket) => ticket.project?._id === source._id);
-
-    return {
-      source,
-      currentPhase,
-      currentSprint,
-      relatedTickets,
-      planned: countPlannedTickets(source.planning),
-      expected: projectExpectedTime(source),
-    };
-  }, [projects, selectedProject, tickets]);
   const projectStatusCounts = useMemo(
     () =>
       projects.reduce(
@@ -529,88 +483,260 @@ function MemberDashboard() {
     [projects],
   );
 
+  const pageHeading = useMemo(() => {
+    if (isDashboardPath) {
+      return {
+        title: `Hello, ${session.user?.name || "Workspace member"}`,
+        subtitle: "Here is what is moving across your projects today.",
+      };
+    }
+
+    if (isProjectsPath) {
+      return {
+        title: "Projects",
+        subtitle: "Track delivery progress across every workspace you are part of.",
+      };
+    }
+
+    if (projectIdFromPath) {
+      return {
+        title: selectedProject?.name || "Project detail",
+        subtitle: selectedProject?.description || "Planning, resources, and quick actions for this workspace.",
+      };
+    }
+
+    if (createTicketProjectId) {
+      return {
+        title: "Raise ticket",
+        subtitle: selectedProject ? `Create a ticket for ${selectedProject.name}.` : "Capture the issue and assign an owner.",
+      };
+    }
+
+    if (createRequestProjectId) {
+      return {
+        title: "Raise request",
+        subtitle: selectedProject ? `Coordinate with the team on ${selectedProject.name}.` : "Share a coordination request with the team.",
+      };
+    }
+
+    if (ticketIdFromPath) {
+      return {
+        title: selectedTicket?.title || "Issue detail",
+        subtitle: "Review status, attachments, and delivery context.",
+      };
+    }
+
+    if (isRequestsPath) {
+      return {
+        title: "Requests",
+        subtitle: "Team coordination across your assigned projects.",
+      };
+    }
+
+    if (isDocumentsPath) {
+      return {
+        title: "Documents",
+        subtitle: "Client agreements and shared project resources.",
+      };
+    }
+
+    return {
+      title: "Member workspace",
+      subtitle: "Projects, tickets, and delivery flow.",
+    };
+  }, [
+    createRequestProjectId,
+    createTicketProjectId,
+    isDashboardPath,
+    isDocumentsPath,
+    isProjectsPath,
+    isRequestsPath,
+    projectIdFromPath,
+    projectTicketsPathId,
+    selectedProject,
+    selectedTicket,
+    session.user?.name,
+    ticketIdFromPath,
+  ]);
+
+  function isNavActive(key) {
+    if (key === "dashboard") {
+      return isDashboardPath;
+    }
+
+    if (key === "projects") {
+      return isProjectsPath || Boolean(projectIdFromPath) || Boolean(projectTicketsPathId) || Boolean(createTicketProjectId) || Boolean(createRequestProjectId);
+    }
+
+    if (key === "requests") {
+      return isRequestsPath;
+    }
+
+    if (key === "documents") {
+      return isDocumentsPath;
+    }
+
+    return false;
+  }
+
+  const activeProjectTab = new URLSearchParams(search).get("tab") === "issues" ? "issues" : "overview";
+  const showProjectTabs = Boolean(projectIdFromPath) && !createTicketProjectId && !createRequestProjectId;
+  const showTicketHeader = Boolean(ticketIdFromPath);
+
+  function handleTicketBack() {
+    if (selectedTicket?.project?._id) {
+      routeTo(`/member/projects/${selectedTicket.project._id}?tab=issues`);
+      return;
+    }
+
+    routeTo("/member/dashboard");
+  }
+
+  function setProjectTab(tab) {
+    if (!selectedProject?._id) {
+      return;
+    }
+
+    const basePath = `/member/projects/${selectedProject._id}`;
+    routeTo(tab === "issues" ? `${basePath}?tab=issues` : basePath);
+  }
+
   return (
     <main className="workspace-shell">
       <div className="workspace-layout">
-        <aside className="workspace-sidebar p-5">
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-blue-600 text-sm font-bold text-white">
+        <aside className="workspace-sidebar">
+          <div className="flex items-center gap-3 px-5 py-5">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary text-sm font-bold text-primary-foreground shadow-sm">
               OD
             </div>
-            <div>
-              <p className="text-sm font-semibold text-slate-900">OrbitDesk Member</p>
-              <p className="muted-text text-xs">Projects, tickets, delivery flow</p>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-foreground">OrbitDesk</p>
+              <p className="muted-text truncate text-xs">Member workspace</p>
             </div>
           </div>
 
-          <nav className="mt-8 space-y-2">
-            <SidebarLink active={isDashboardPath} icon="01" label="Dashboard" onClick={() => routeTo("/member/dashboard")} />
-            <SidebarLink active={isProjectsPath || Boolean(projectIdFromPath) || Boolean(projectTicketsPathId) || Boolean(createTicketProjectId) || Boolean(createRequestProjectId)} icon="02" label="Projects" onClick={() => routeTo("/member/projects")} />
-            <SidebarLink active={isTicketsPath || Boolean(ticketIdFromPath)} icon="03" label="Issues" onClick={() => routeTo("/member/tickets")} />
-            <SidebarLink active={isRequestsPath} icon="04" label="Requests" onClick={() => routeTo("/member/requests")} />
-            <SidebarLink active={isDocumentsPath} icon="05" label="Documents" onClick={() => routeTo("/member/documents")} />
+          <nav aria-label="Member workspace" className="flex-1 space-y-1 overflow-y-auto px-3 py-2">
+            <p className="sidebar-section-label">Workspace</p>
+            {NAV_ITEMS.map(([key, label, href]) => (
+              <button
+                aria-current={isNavActive(key) ? "page" : undefined}
+                className={`sidebar-link w-full justify-between ${isNavActive(key) ? "sidebar-link-active" : ""}`}
+                key={key}
+                onClick={() => routeTo(href)}
+                type="button"
+              >
+                <span>{label}</span>
+              </button>
+            ))}
           </nav>
 
-          <div className="surface-muted mt-8 p-4">
-            <p className="text-sm font-semibold text-slate-900">{session.user?.name || "Workspace member"}</p>
-            <p className="muted-text mt-1 text-sm">{session.user?.email || "Delivery team"}</p>
+          <div className="mt-auto border-t border-[var(--border)] p-4">
+            <div className="flex items-center gap-3 rounded-xl bg-muted p-3">
+              <span className="avatar-badge">{getInitials(session.user?.name || session.user?.email)}</span>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-foreground">{session.user?.name || "Workspace member"}</p>
+                <p className="muted-text truncate text-xs">{session.user?.email || "Delivery team"}</p>
+              </div>
+            </div>
           </div>
         </aside>
 
         <section className="workspace-main">
-          {isDashboardPath ? (
-            <header className="workspace-header p-4 sm:p-5">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h1 className="text-xl font-semibold text-slate-900 sm:text-2xl">Hello, {session.user?.name || "Workspace member"}</h1>
-                  <p className="muted-text mt-1 text-sm">Here is what is moving across your projects today.</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button className="primary-button" onClick={() => routeTo("/member/projects")} type="button">
-                    Open projects
-                  </button>
-                  <button aria-label="Sync dashboard" className="icon-button" onClick={loadHomeData} title="Sync dashboard" type="button">
-                    <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24">
-                      <path d="M20 7v5h-5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
-                      <path d="M4 17v-5h5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
-                      <path d="M18.2 9A7 7 0 0 0 6.4 6.9L4 9" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
-                      <path d="M5.8 15A7 7 0 0 0 17.6 17.1L20 15" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
-                    </svg>
-                  </button>
+          <div className="workspace-header-group">
+            <header className="workspace-topbar">
+              <div className="flex min-w-0 items-start gap-3">
+                {showProjectTabs ? (
+                  <IconButton label="Back to projects" onClick={() => routeTo("/member/projects")}>
+                    <IconBack />
+                  </IconButton>
+                ) : null}
+                {showTicketHeader ? (
+                  <IconButton label="Back to issues" onClick={handleTicketBack}>
+                    <IconBack />
+                  </IconButton>
+                ) : null}
+                <div className="min-w-0">
+                  <h1 className="section-title truncate">{pageHeading.title}</h1>
+                  <p className="muted-text mt-1 text-sm">{pageHeading.subtitle}</p>
                 </div>
               </div>
-
-              {error ? <p className="status-error mt-5">{error}</p> : null}
-              {status ? <p className="status-success mt-5">{status}</p> : null}
+              <div className="action-row">
+                {showProjectTabs && selectedProject ? (
+                  <>
+                    <button className="primary-button" onClick={() => routeTo(`/member/projects/${selectedProject._id}/tickets/new`)} type="button">
+                      Raise ticket
+                    </button>
+                    <IconButton label="Raise request" onClick={() => routeTo(`/member/projects/${selectedProject._id}/requests/new`)}>
+                      <IconCompose />
+                    </IconButton>
+                  </>
+                ) : null}
+                {showTicketHeader && selectedTicket ? (
+                  <IconButton label="Share ticket" onClick={() => openShareTicket(selectedTicket)}>
+                    <IconShare />
+                  </IconButton>
+                ) : null}
+                <button aria-label="Refresh workspace" className="icon-button" onClick={loadHomeData} title="Refresh workspace" type="button">
+                  <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24">
+                    <path d="M20 7v5h-5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+                    <path d="M4 17v-5h5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+                    <path d="M18.2 9A7 7 0 0 0 6.4 6.9L4 9" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+                    <path d="M5.8 15A7 7 0 0 0 17.6 17.1L20 15" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+                  </svg>
+                </button>
+              </div>
             </header>
-          ) : (
-            <>
-              {error ? <p className="status-error mt-6">{error}</p> : null}
-              {status ? <p className="status-success mt-6">{status}</p> : null}
-            </>
-          )}
 
-          {isDashboardPath ? (
-            <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {showProjectTabs ? (
+              <nav aria-label="Project sections" className="workspace-tabbar" role="tablist">
+                {PROJECT_DETAIL_TABS.map((tab) => (
+                  <button
+                    aria-selected={activeProjectTab === tab.key}
+                    className={`workspace-tab${activeProjectTab === tab.key ? " workspace-tab-active" : ""}`}
+                    key={tab.key}
+                    onClick={() => setProjectTab(tab.key)}
+                    role="tab"
+                    type="button"
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </nav>
+            ) : null}
+          </div>
+
+          <div className="workspace-content space-y-6">
+            {loading && isDashboardPath && !projects.length && !tickets.length ? <WorkspaceSkeleton /> : null}
+
+          {isDashboardPath && (!loading || projects.length || tickets.length) ? (
+            <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <MetricCard label="Pending projects" tone="pending" value={projectStatusCounts.pending} note="Waiting for kickoff or planning" onClick={() => routeTo("/member/projects")} />
               <MetricCard label="Assigned projects" tone="assigned" value={projectStatusCounts.assigned} note="Active workspaces in delivery" onClick={() => routeTo("/member/projects")} />
               <MetricCard label="Completed projects" tone="completed" value={projectStatusCounts.completed} note="Delivered workspaces" onClick={() => routeTo("/member/projects")} />
-              <MetricCard label="Open tickets" value={tickets.filter((ticket) => ticket.status === "open").length} note="Awaiting active execution" onClick={() => routeTo("/member/tickets")} />
+              <MetricCard label="Open tickets" value={tickets.filter((ticket) => ticket.status === "open").length} note="Awaiting active execution" onClick={() => routeTo("/member/dashboard")} />
             </section>
           ) : null}
 
-          {isDashboardPath ? <DashboardHome documentsFeed={documentsFeed} requestsFeed={requestsFeed} summary={activeProjectSummary} tickets={tickets} /> : null}
-          {isProjectsPath ? <ProjectsPage loading={loading} projects={projects} /> : null}
-          {projectTicketsPathId ? <TicketsPage loading={loading} onStatusChange={handleStatusChange} tickets={tickets.filter((ticket) => ticket.project?._id === projectTicketsPathId)} title={selectedProject ? `${selectedProject.name} Tickets` : "Project Tickets"} /> : null}
-          {isTicketsPath ? <TicketsPage loading={loading} onStatusChange={handleStatusChange} tickets={tickets} /> : null}
+          {isDashboardPath ? (
+            <DashboardHome loading={loading} onStatusChange={handleStatusChange} projects={projects} tickets={tickets} />
+          ) : null}
+          {isProjectsPath && (!loading || projects.length) ? <ProjectsPage loading={loading} projects={projects} /> : null}
           {isRequestsPath ? <RequestsPage loading={loading} requests={requestsFeed} /> : null}
           {isDocumentsPath ? <DocumentsPage documents={documentsFeed} loading={loading} /> : null}
-          {projectIdFromPath ? <ProjectDetail project={selectedProject} projectClient={projectClient} requests={projectRequests} tickets={tickets} /> : null}
+          {projectIdFromPath ? (
+            <ProjectDetail
+              activeTab={activeProjectTab}
+              loading={loading}
+              onStatusChange={handleStatusChange}
+              project={selectedProject}
+              projectClient={projectClient}
+              requests={projectRequests}
+              tickets={tickets}
+            />
+          ) : null}
           {ticketIdFromPath ? (
             <TicketDetail
               loading={loading}
-              onBack={() => routeTo("/member/tickets")}
-              onShare={() => openShareTicket(selectedTicket)}
               onStatusChange={handleStatusChange}
               ticket={selectedTicket}
             />
@@ -620,6 +746,7 @@ function MemberDashboard() {
               assignedMember={assignedMember}
               loading={loading}
               memberSearch={memberSearch}
+              submitting={submitting}
               onBack={() => routeTo(`/member/projects/${createTicketProjectId}`)}
               onMemberSearch={setMemberSearch}
               onSelectAssignee={(memberId) => setTicketForm((current) => ({ ...current, assignedTo: memberId }))}
@@ -633,6 +760,7 @@ function MemberDashboard() {
           {createRequestProjectId ? (
             <CreateRequestPage
               loading={loading}
+              submitting={submitting}
               onBack={() => routeTo(`/member/projects/${createRequestProjectId}`)}
               onRequestChange={updateRequest}
               onSubmit={handleRequestSubmit}
@@ -640,12 +768,12 @@ function MemberDashboard() {
               requestForm={requestForm}
             />
           ) : null}
+          </div>
         </section>
       </div>
 
       {shareTicket ? (
         <ShareTicketModal
-          copyStatus={copyStatus}
           onClose={() => {
             const closePath = shareTicket.closePath;
             closeShareTicket();
@@ -666,185 +794,101 @@ function MemberDashboard() {
   );
 }
 
-function SidebarLink({ active, icon, label, onClick }) {
-  return (
-    <button className={`sidebar-link w-full justify-between ${active ? "sidebar-link-active" : ""}`} onClick={onClick} type="button">
-      <span className="flex items-center gap-3">
-        <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-xs font-bold text-slate-600">{icon}</span>
-        {label}
-      </span>
-    </button>
-  );
-}
-
 function MetricCard({ label, value, note, onClick, tone = "neutral" }) {
   const Tag = onClick ? "button" : "article";
   return (
     <Tag className={`metric-card metric-card-${tone} w-full text-left ${onClick ? "cursor-pointer hover:shadow-md" : ""}`} onClick={onClick} type={onClick ? "button" : undefined}>
       <div className="flex items-center gap-2">
-        <span className={`status-dot status-dot-${tone}`} />
+        <span aria-hidden="true" className={`status-dot status-dot-${tone === "neutral" ? "neutral" : tone}`} />
         <p className="muted-text text-sm font-semibold">{label}</p>
       </div>
-      <strong className="mt-2 block text-2xl font-bold tracking-[-0.04em] text-slate-900">{value}</strong>
+      <strong className="metric-value">{value}</strong>
       <p className="muted-text mt-2 text-sm">{note}</p>
     </Tag>
   );
 }
 
-function DashboardHome({ documentsFeed, requestsFeed, summary, tickets }) {
+function WorkspaceSkeleton() {
   return (
-    <div className="mt-6 space-y-6">
-      <section className="surface-card p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <p className="eyebrow">Current Focus</p>
-            <h2 className="mt-3 text-xl font-semibold tracking-[-0.03em] text-slate-900">{summary?.source?.name || "No project assigned"}</h2>
-            <p className="muted-text mt-3 text-sm leading-6">
-              {summary?.source?.description || "Assigned project details will appear here when a workspace is available."}
-            </p>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <InfoStat label="Expected delivery" value={summary?.expected || "Not set"} onClick={summary?.source?._id ? () => routeTo(`/member/projects/${summary.source._id}`) : undefined} />
-            <InfoStat label="Planned items" value={summary?.planned ?? 0} onClick={summary?.source?._id ? () => routeTo(`/member/projects/${summary.source._id}`) : undefined} />
-            <InfoStat label="Open tickets" value={tickets.filter((ticket) => ticket.status === "open").length} onClick={() => routeTo("/member/tickets")} />
-            <InfoStat label="Requests" value={requestsFeed.length} onClick={() => routeTo("/member/requests")} />
-          </div>
-        </div>
-      </section>
+    <div aria-busy="true" aria-label="Loading workspace" className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div className="loading-skeleton h-32" key={index} />
+        ))}
+      </div>
+      <div className="loading-skeleton h-72" />
     </div>
+  );
+}
+
+function DashboardHome({ loading, onStatusChange, projects, tickets }) {
+  const [query, setQuery] = useState("");
+  const [projectId, setProjectId] = useState("");
+  const [status, setStatus] = useState("");
+  const [sort, setSort] = useState("updatedAt");
+
+  const filteredTickets = useMemo(
+    () =>
+      filterAndSortTickets(tickets, {
+        query,
+        projectId: projectId === "all" ? "" : projectId,
+        status: status === "all" ? "" : status,
+        sort,
+      }),
+    [projectId, query, sort, status, tickets],
+  );
+
+  return (
+    <TableSection
+      subtitle="Scan and update tickets across all assigned projects."
+      title="Execution tickets"
+    >
+      <TicketFilters
+        onProjectChange={setProjectId}
+        onQueryChange={setQuery}
+        onSortChange={setSort}
+        onStatusChange={setStatus}
+        projectId={projectId}
+        projects={projects}
+        query={query}
+        sort={sort}
+        status={status}
+      />
+      <TicketTable
+        emptyCopy={query || projectId || status ? "No issues match your filters." : "No assigned tickets yet."}
+        loading={loading}
+        onStatusChange={onStatusChange}
+        tickets={filteredTickets}
+      />
+    </TableSection>
   );
 }
 
 function ProjectsPage({ loading, projects }) {
   return (
-    <section className="surface-card mt-6 p-6">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="eyebrow">Projects</p>
-          <h2 className="section-title mt-3">Assigned workspaces</h2>
-        </div>
-        <span className="glass-chip">{projects.length}</span>
-      </div>
-      {projects.length ? (
-        <div className="mt-6 overflow-x-auto">
-          <table className="project-table">
-            <thead>
-              <tr>
-                <th>Project</th>
-                <th>Status</th>
-                <th>Timeline</th>
-                <th>Phases</th>
-                <th>Sprints</th>
-                <th>Planned</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {projects.map((project) => {
-                const tone = getProjectTone(project.status);
-
-                return (
-                  <tr className={`project-row project-row-${tone}`} key={project._id}>
-                    <td>
-                      <div className="flex min-w-[240px] items-start gap-3">
-                        <span className={`status-dot status-dot-${tone} mt-1.5`} />
-                        <div>
-                          <p className="font-semibold text-slate-900">{project.name}</p>
-                          <p className="muted-text mt-1 line-clamp-2 text-sm">{project.description || "No project description provided."}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td>
-                      <span className={`status-pill status-pill-${tone}`}>{normalizeStatus(project.status)}</span>
-                    </td>
-                    <td>{projectExpectedTime(project)}</td>
-                    <td>{project.planning?.length || 0}</td>
-                    <td>{countProjectSprints(project)}</td>
-                    <td>{countPlannedTickets(project.planning)}</td>
-                    <td>
-                      <div className="flex min-w-[190px] flex-wrap gap-2">
-                        <button className="secondary-button px-3 py-2" onClick={() => routeTo(`/member/projects/${project._id}`)} type="button">
-                          Details
-                        </button>
-                        <button className="secondary-button px-3 py-2" onClick={() => routeTo(`/member/projects/${project._id}/tickets`)} type="button">
-                          Tickets
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <EmptyCard copy={loading ? "Loading projects..." : "No assigned projects yet."} />
-      )}
-    </section>
-  );
-}
-
-function TicketsPage({ loading, onStatusChange, tickets, title = "Execution tickets" }) {
-  return (
-    <section className="surface-card mt-6 p-6">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="eyebrow">Issues</p>
-          <h2 className="section-title mt-3">{title}</h2>
-        </div>
-        <span className="glass-chip">{tickets.length}</span>
-      </div>
-      <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {tickets.map((ticket) => (
-          <article className="task-card" key={ticket._id}>
-            <div className="flex flex-col gap-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-semibold text-blue-700">{ticket.project?.name || "Project"}</p>
-                  <h3 className="mt-1 text-sm font-semibold text-slate-900">{ticket.title}</h3>
-                </div>
-                <span className="badge badge-primary">{normalizeStatus(ticket.status)}</span>
-              </div>
-              <p className="muted-text text-sm leading-5">{ticket.description || "No description provided."}</p>
-              <div className="grid gap-2">
-                <InfoStat label="Due date" value={formatDate(ticket.deadline)} />
-              </div>
-              <label className="text-sm font-semibold text-slate-900">
-                Status
-                <select className="input-field" disabled={loading} onChange={(event) => onStatusChange(ticket._id, event.target.value)} value={ticket.status}>
-                  <option value="open">Open</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="resolved">Done</option>
-                </select>
-              </label>
-              <div className="flex justify-end">
-                <button className="secondary-button" onClick={() => routeTo(`/member/tickets/${ticket._id}`)} type="button">
-                  View detail
-                </button>
-              </div>
-            </div>
-          </article>
-        ))}
-        {!tickets.length ? <EmptyCard copy={loading ? "Loading tickets..." : "No assigned tickets yet."} /> : null}
-      </div>
-    </section>
+    <TableSection
+      subtitle="Open a project from the table or jump straight to its issues."
+      title="Assigned workspaces"
+    >
+      <ProjectTable loading={loading} projects={projects} />
+    </TableSection>
   );
 }
 
 function RequestsPage({ loading, requests }) {
   return (
-    <section className="surface-card mt-6 p-6">
-      <p className="eyebrow">Requests</p>
-      <h2 className="section-title mt-3">Team coordination feed</h2>
+    <section className="surface-card p-6">
+      <h2 className="section-title">Team coordination feed</h2>
+      <p className="muted-text mt-2 text-sm">Requests raised across your assigned projects.</p>
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
         {requests.map((requestItem) => (
           <article className="surface-muted p-5" key={requestItem._id}>
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h3 className="font-semibold text-slate-900">{requestItem.title}</h3>
+                <h3 className="font-semibold text-foreground">{requestItem.title}</h3>
                 <p className="muted-text mt-1 text-sm">{requestItem.project?.name || "Project"}</p>
               </div>
-              <span className="badge badge-info">{normalizeStatus(requestItem.status)}</span>
+              <StatusBadge status={requestItem.status} />
             </div>
             <p className="muted-text mt-3 text-sm">{requestItem.description || "No details provided."}</p>
           </article>
@@ -857,13 +901,13 @@ function RequestsPage({ loading, requests }) {
 
 function DocumentsPage({ documents, loading }) {
   return (
-    <section className="surface-card mt-6 p-6">
-      <p className="eyebrow">Documents</p>
-      <h2 className="section-title mt-3">Project resources</h2>
+    <section className="surface-card p-6">
+      <h2 className="section-title">Project resources</h2>
+      <p className="muted-text mt-2 text-sm">Client agreements and files shared with your workspaces.</p>
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
         {documents.map((item) => (
           <article className="surface-muted p-5" key={`${item.project._id}-${item.document.url}`}>
-            <p className="font-semibold text-slate-900">{item.document.originalName || "Agreement document"}</p>
+            <p className="font-semibold text-foreground">{item.document.originalName || "Agreement document"}</p>
             <p className="muted-text mt-1 text-sm">{item.project.name}</p>
             <a className="primary-button mt-4" href={item.document.url} rel="noreferrer" target="_blank">
               Open document
@@ -876,275 +920,270 @@ function DocumentsPage({ documents, loading }) {
   );
 }
 
-function ProjectDetail({ project, projectClient, requests, tickets }) {
+function ProjectDetail({ activeTab = "overview", loading, onStatusChange, project, projectClient, requests, tickets }) {
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState("");
+  const [sort, setSort] = useState("updatedAt");
+
+  const projectTickets = useMemo(
+    () => tickets.filter((ticket) => ticket.project?._id === project?._id),
+    [project?._id, tickets],
+  );
+
+  const filteredProjectTickets = useMemo(
+    () =>
+      filterAndSortTickets(projectTickets, {
+        query,
+        status: status === "all" ? "" : status,
+        sort,
+      }),
+    [projectTickets, query, sort, status],
+  );
+
   if (!project) {
-    return <section className="surface-card mt-6 p-6 text-sm text-slate-500">Loading project...</section>;
+    return <section className="surface-card p-6 text-sm text-muted-foreground">Loading project...</section>;
   }
 
   const currentPhase = resolveCurrentPhase(project.planning || []);
   const currentSprint = resolveCurrentSprint(currentPhase);
-  const projectTicketCount = tickets.filter((ticket) => ticket.project?._id === project._id).length;
   const projectDocuments = projectClient?.agreementDocument?.url ? [projectClient.agreementDocument] : [];
 
   return (
-    <section className="surface-card mt-6 p-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <button className="secondary-button" onClick={() => routeTo("/member/projects")} type="button">
-            Back to projects
-          </button>
-          <p className="eyebrow mt-5">Project Detail</p>
-          <h2 className="section-title mt-3">{project.name}</h2>
-          <p className="muted-text mt-3 max-w-3xl text-sm leading-6">{project.description || "No project description provided."}</p>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <button className="primary-button" onClick={() => routeTo(`/member/projects/${project._id}/tickets/new`)} type="button">
-            Raise ticket
-          </button>
-          <button className="secondary-button" onClick={() => routeTo(`/member/projects/${project._id}/tickets`)} type="button">
-            Open tickets
-          </button>
-          <button className="secondary-button" onClick={() => routeTo(`/member/projects/${project._id}/requests/new`)} type="button">
-            Raise request
-          </button>
-        </div>
-      </div>
-
-      <div className="mt-6 detail-layout">
-        <div className="detail-main-stack">
-          <section className="surface-muted p-5">
-            <h3 className="compact-panel-title">Project summary</h3>
-            <p className="muted-text mt-3 text-sm leading-6">{project.description || "No project description provided."}</p>
-            <div className="strip-grid mt-4">
-              <StripStat label="Status" value={normalizeStatus(project.status)} />
-              <StripStat label="Client" value={projectClient?.name || project.clientEmail || "Not assigned"} />
-              <StripStat label="Expected" value={projectExpectedTime(project)} />
-              <StripStat label="Phase" value={currentPhase?.name || "Not set"} />
-              <StripStat label="Sprint" value={currentSprint?.name || "Not set"} />
-              <StripStat label="Tickets" value={projectTicketCount} />
-              <StripStat label="Requests" value={requests.length} />
-              <StripStat label="Members" value={project.members?.length || 0} />
-              <StripStat label="Agreement" value={projectDocuments.length ? "Attached" : "Missing"} />
-            </div>
-          </section>
-
-          <section className="surface-muted p-5">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="compact-panel-title">Delivery plan</h3>
-              <span className="glass-chip">{countPlannedTickets(project.planning)} planned items</span>
-            </div>
-            <div className="mt-5 grid gap-3 xl:grid-cols-2">
-              {(project.planning || []).map((phase, phaseIndex) => (
-                <article className="surface-card p-4" key={`${project._id}-${phaseIndex}`}>
-                  <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Phase {phaseIndex + 1}</p>
-                  <h4 className="mt-2 text-sm font-semibold text-slate-900">{phase.name || `Phase ${phaseIndex + 1}`}</h4>
-                  <p className="muted-text mt-2 text-sm leading-5">{phase.outcome || "No phase outcome defined."}</p>
-                  <div className="mt-4 space-y-2">
-                    {(phase.sprints || []).map((sprint, sprintIndex) => (
-                      <div className="rounded-lg border border-slate-200 bg-white px-3 py-3" key={`${phaseIndex}-${sprintIndex}`}>
-                        <div className="flex items-center justify-between gap-3">
-                          <span className="text-sm font-semibold text-slate-900">{sprint.name || `Sprint ${sprintIndex + 1}`}</span>
-                          <span className="badge badge-info">{formatDate(sprint.endDate)}</span>
+    <div className="space-y-6">
+      {activeTab === "issues" ? (
+        <TableSection
+          subtitle="Issues scoped to this project."
+          title="Project issues"
+        >
+          <TicketFilters
+            onProjectChange={() => {}}
+            onQueryChange={setQuery}
+            onSortChange={setSort}
+            onStatusChange={setStatus}
+            query={query}
+            showProjectFilter={false}
+            sort={sort}
+            status={status}
+          />
+          <TicketTable
+            emptyCopy={query || status ? "No issues match your filters." : "No issues raised for this project yet."}
+            loading={loading}
+            onStatusChange={onStatusChange}
+            showProject={false}
+            tickets={filteredProjectTickets}
+          />
+        </TableSection>
+      ) : (
+        <div className="detail-layout">
+          <div className="detail-main-stack">
+            <section className="surface-muted p-5">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="compact-panel-title">Delivery plan</h3>
+                <span className="glass-chip">{countPlannedTickets(project.planning)} planned items</span>
+              </div>
+              <div className="mt-5 divide-y divide-[var(--border)]">
+                {(project.planning || []).map((phase, phaseIndex) => (
+                  <article className="py-4 first:pt-0" key={`${project._id}-${phaseIndex}`}>
+                    <p className="muted-text text-xs font-semibold">Phase {phaseIndex + 1}</p>
+                    <h4 className="mt-2 text-sm font-semibold text-foreground">{phase.name || `Phase ${phaseIndex + 1}`}</h4>
+                    <p className="muted-text mt-2 text-sm leading-5">{phase.outcome || "No phase outcome defined."}</p>
+                    <div className="mt-4 space-y-3 border-l-2 border-[var(--border)] pl-4">
+                      {(phase.sprints || []).map((sprint, sprintIndex) => (
+                        <div key={`${phaseIndex}-${sprintIndex}`}>
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-sm font-semibold text-foreground">{sprint.name || `Sprint ${sprintIndex + 1}`}</span>
+                            <span className="glass-chip">{formatDate(sprint.endDate)}</span>
+                          </div>
+                          <p className="muted-text mt-1 text-sm leading-5">{sprint.outcome || "No sprint outcome defined."}</p>
                         </div>
-                        <p className="muted-text mt-2 text-sm leading-5">{sprint.outcome || "No sprint outcome defined."}</p>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
+                  </article>
+                ))}
+                {!project.planning?.length ? <EmptyCard copy="No planning details added yet." /> : null}
+              </div>
+            </section>
+          </div>
+
+          <aside className="detail-side-stack">
+            <section className="surface-muted p-4">
+              <h3 className="compact-panel-title">Project summary</h3>
+              <div className="summary-stack mt-2.5">
+                <SummaryRow label="Status">
+                  <ProjectStatusBadge status={project.status} />
+                </SummaryRow>
+                <SummaryRow label="Client" value={projectClient?.name || project.clientEmail || "Not assigned"} />
+                <SummaryRow label="Expected delivery" value={projectExpectedTime(project)} />
+                <SummaryRow label="Phase" value={currentPhase?.name || "Not set"} />
+                <SummaryRow label="Sprint" value={currentSprint?.name || "Not set"} />
+                <SummaryRow label="Tickets" value={projectTickets.length} />
+                <SummaryRow label="Requests" value={requests.length} />
+                <SummaryRow label="Members" value={project.members?.length || 0} />
+                <SummaryRow label="Agreement">
+                  <AgreementBadge attached={Boolean(projectDocuments.length)} />
+                </SummaryRow>
+              </div>
+            </section>
+
+            <section className="surface-muted p-5">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="compact-panel-title">Resources</h3>
+                <span className="glass-chip">{projectDocuments.length}</span>
+              </div>
+              <div className="mt-4 divide-y divide-[var(--border)]">
+                {projectDocuments.map((document) => (
+                  <div className="flex items-center justify-between gap-3 py-3 first:pt-0" key={document.url}>
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-foreground">{document.originalName || "Agreement document"}</p>
+                      <p className="muted-text mt-1 text-sm">Client agreement</p>
+                    </div>
+                    <a aria-label={`Open ${document.originalName || "agreement document"}`} className="icon-button icon-button-sm" href={document.url} rel="noreferrer" target="_blank" title="Open document">
+                      <IconOpen />
+                    </a>
                   </div>
-                </article>
-              ))}
-              {!project.planning?.length ? <EmptyCard copy="No planning details added yet." /> : null}
-            </div>
-          </section>
+                ))}
+                {!projectDocuments.length ? <EmptyCard copy="No project documents attached yet." /> : null}
+              </div>
+            </section>
+          </aside>
         </div>
-
-        <aside className="detail-side-stack">
-          <section className="surface-muted p-5">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="compact-panel-title">Resources</h3>
-              <span className="glass-chip">{projectDocuments.length}</span>
-            </div>
-            <div className="mt-4 space-y-3">
-              {projectDocuments.map((document) => (
-                <a className="surface-card block p-4 hover:border-violet-200" href={document.url} key={document.url} rel="noreferrer" target="_blank">
-                  <p className="font-semibold text-slate-900">{document.originalName || "Agreement document"}</p>
-                  <p className="muted-text mt-1 text-sm">Open client document</p>
-                </a>
-              ))}
-              {!projectDocuments.length ? <EmptyCard copy="No project documents attached yet." /> : null}
-            </div>
-          </section>
-
-          <section className="surface-muted p-5">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="compact-panel-title">Quick actions</h3>
-              <span className="glass-chip">{project.members?.length || 0}</span>
-            </div>
-            <div className="mt-4 space-y-3">
-              <button className="secondary-button w-full justify-start" onClick={() => routeTo(`/member/projects/${project._id}/tickets`)} type="button">
-                View project tickets
-              </button>
-              <button className="secondary-button w-full justify-start" onClick={() => routeTo(`/member/projects/${project._id}/requests/new`)} type="button">
-                Create request
-              </button>
-              <button className="secondary-button w-full justify-start" onClick={() => routeTo(`/member/projects/${project._id}/tickets/new`)} type="button">
-                Create ticket
-              </button>
-            </div>
-          </section>
-        </aside>
-      </div>
-    </section>
+      )}
+    </div>
   );
 }
 
-function TicketDetail({ loading, onBack, onShare, onStatusChange, ticket }) {
+function TicketDetail({ loading, onStatusChange, ticket }) {
   if (!ticket) {
-    return <section className="surface-card mt-6 p-6 text-sm text-slate-500">Loading ticket...</section>;
+    return <section className="surface-card p-6 text-sm text-muted-foreground">Loading ticket...</section>;
   }
 
   return (
-    <section className="surface-card mt-6 p-6">
-      <div className="flex flex-wrap items-center gap-3">
-        <button className="secondary-button" onClick={onBack} type="button">
-          Back to tickets
-        </button>
-        <button className="secondary-button" onClick={onShare} type="button">
-          Share
-        </button>
+    <div className="detail-layout">
+      <div className="detail-main-stack">
+        <section className="surface-muted p-5">
+          <h3 className="compact-panel-title">Description</h3>
+          <p className="muted-text mt-4 text-sm leading-6">{ticket.description || "No description provided."}</p>
+        </section>
+
+        <section className="surface-muted p-5">
+          <h3 className="compact-panel-title">Comments</h3>
+          <div className="empty-state mt-4">
+            <p className="muted-text text-sm">Comments will appear here when collaborative updates are available.</p>
+          </div>
+        </section>
       </div>
-      <div className="mt-5 detail-layout">
-        <div className="detail-main-stack">
-          <section className="surface-muted p-5">
-            <p className="eyebrow">Issue Detail</p>
-            <h2 className="section-title mt-3">{ticket.title}</h2>
-            <p className="muted-text mt-4 text-sm leading-6">{ticket.description || "No description provided."}</p>
-            <div className="strip-grid mt-4">
-              <StripStat label="Status" value={normalizeStatus(ticket.status)} />
-              <StripStat label="Assignee" value={ticket.assignedTo?.name || ticket.assignedTo?.email || "Unassigned"} />
-              <StripStat label="Due" value={formatDate(ticket.deadline)} />
-              <StripStat label="Sprint" value={ticket.sprint?.sprintName || "Not set"} />
-              <StripStat label="Project" value={ticket.project?.name || "-"} />
-              <StripStat label="Reporter" value="Member workspace" />
-            </div>
-          </section>
 
-          <section className="surface-muted p-5">
-            <h3 className="compact-panel-title">Comments</h3>
-            <div className="empty-state mt-4">
-              <p className="text-sm text-slate-600">Comments will appear here when collaborative updates are available.</p>
-            </div>
-          </section>
-        </div>
+      <aside className="detail-side-stack">
+        <section className="surface-muted p-5">
+          <h3 className="compact-panel-title">Issue details</h3>
+          <div className="summary-stack mt-2.5">
+            <SummaryRow label="Status">
+              <StatusSelect
+                className="w-full"
+                disabled={loading}
+                onChange={(event) => onStatusChange(ticket._id, event.target.value)}
+                status={ticket.status}
+              />
+            </SummaryRow>
+            <SummaryRow label="Assignee" value={ticket.assignedTo?.name || ticket.assignedTo?.email || "Unassigned"} />
+            <SummaryRow label="Due" value={formatDate(ticket.deadline)} />
+            <SummaryRow label="Sprint" value={ticket.sprint?.sprintName || "Not set"} />
+            <SummaryRow label="Project" value={ticket.project?.name || "-"} />
+            <SummaryRow label="Reporter" value="Member workspace" />
+          </div>
+        </section>
 
-        <aside className="detail-side-stack">
-          <section className="surface-muted p-5">
-            <h3 className="compact-panel-title">Status</h3>
-            <label className="mt-4 block text-sm font-semibold text-slate-900">
-              Status
-              <select className="input-field" disabled={loading} onChange={(event) => onStatusChange(ticket._id, event.target.value)} value={ticket.status}>
-                <option value="open">Open</option>
-                <option value="in_progress">In Progress</option>
-                <option value="resolved">Done</option>
-              </select>
-            </label>
-          </section>
-
-          <section className="surface-muted p-5">
-            <h3 className="compact-panel-title">Documents</h3>
-            <div className="mt-4 space-y-3">
-              {(ticket.urls || []).map((url) => (
-                <a className="surface-card block p-4 hover:border-violet-200" href={url} key={url} rel="noreferrer" target="_blank">
-                  <p className="font-semibold text-slate-900">Attachment link</p>
+        <section className="surface-muted p-5">
+          <h3 className="compact-panel-title">Documents</h3>
+          <div className="mt-4 divide-y divide-[var(--border)]">
+            {(ticket.urls || []).map((url) => (
+              <div className="flex items-start justify-between gap-3 py-3 first:pt-0" key={url}>
+                <div className="min-w-0">
+                  <p className="font-semibold text-foreground">Attachment link</p>
                   <p className="muted-text mt-1 break-all text-sm">{url}</p>
+                </div>
+                <a aria-label="Open attachment" className="icon-button icon-button-sm shrink-0" href={url} rel="noreferrer" target="_blank" title="Open attachment">
+                  <IconOpen />
                 </a>
-              ))}
-              {!ticket.urls?.length ? <EmptyCard copy="No attachments added to this issue yet." /> : null}
-            </div>
-          </section>
-        </aside>
-      </div>
-    </section>
+              </div>
+            ))}
+            {!ticket.urls?.length ? <EmptyCard copy="No attachments added to this issue yet." /> : null}
+          </div>
+        </section>
+      </aside>
+    </div>
   );
 }
 
-function CreateTicketPage({ assignedMember, loading, memberSearch, onBack, onMemberSearch, onSelectAssignee, onSubmit, onTicketChange, project, searchedMembers, ticketForm }) {
+function CreateTicketPage({ assignedMember, loading, memberSearch, onBack, onMemberSearch, onSelectAssignee, onSubmit, onTicketChange, project, searchedMembers, submitting, ticketForm }) {
   if (!project) {
-    return <section className="surface-card mt-6 p-6 text-sm text-slate-500">Loading project...</section>;
+    return <section className="surface-card p-6 text-sm text-muted-foreground">Loading project...</section>;
   }
 
   return (
-    <section className="surface-card mt-6 p-6">
-      <button className="secondary-button" onClick={onBack} type="button">
-        Back to project
-      </button>
+    <section className="surface-card p-6">
+      <IconButton label="Back to project" onClick={onBack}>
+        <IconBack />
+      </IconButton>
       <div className="mt-5 grid gap-6 xl:grid-cols-[1fr_1fr]">
         <form className="surface-muted p-5" onSubmit={onSubmit}>
-          <p className="eyebrow">Raise Ticket</p>
-          <h2 className="section-title mt-3">Raise ticket for {project.name}</h2>
+          <h2 className="section-title">Raise ticket for {project.name}</h2>
           <p className="muted-text mt-3 text-sm leading-6">Capture the issue clearly, assign the right owner, and keep the ticket ready for immediate action.</p>
 
-          <label className="block text-sm font-semibold text-slate-900" htmlFor="title">
-            Title
-            <input className="input-field" id="title" name="title" onChange={onTicketChange} placeholder="Summarize the issue clearly" required value={ticketForm.title} />
-          </label>
+          <Field label="Title">
+            <input className="input-field mt-2" name="title" onChange={onTicketChange} placeholder="Summarize the issue clearly" required value={ticketForm.title} />
+          </Field>
 
-          <label className="mt-4 block text-sm font-semibold text-slate-900" htmlFor="deadline">
-            Due date
-            <input className="input-field" id="deadline" min={getTodayInputValue()} name="deadline" onChange={onTicketChange} required type="date" value={ticketForm.deadline} />
-          </label>
+          <Field label="Due date">
+            <input className="input-field mt-2" min={getTodayInputValue()} name="deadline" onChange={onTicketChange} required type="date" value={ticketForm.deadline} />
+          </Field>
 
           <div className="mt-4 grid gap-4 sm:grid-cols-3">
-            <label className="block text-sm font-semibold text-slate-900" htmlFor="status">
-              Status
-              <select className="input-field" id="status" name="status" onChange={onTicketChange} value={ticketForm.status}>
+            <Field label="Status">
+              <select className="input-field mt-2" name="status" onChange={onTicketChange} value={ticketForm.status}>
                 <option value="open">Open</option>
                 <option value="in_progress">In Progress</option>
                 <option value="resolved">Done</option>
               </select>
-            </label>
+            </Field>
 
-            <label className="block text-sm font-semibold text-slate-900" htmlFor="priority">
-              Priority
-              <select className="input-field" id="priority" name="priority" onChange={onTicketChange} value={ticketForm.priority}>
+            <Field label="Priority">
+              <select className="input-field mt-2" name="priority" onChange={onTicketChange} value={ticketForm.priority}>
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
                 <option value="high">High</option>
                 <option value="critical">Critical</option>
               </select>
-            </label>
+            </Field>
 
-            <label className="block text-sm font-semibold text-slate-900" htmlFor="type">
-              Type
-              <select className="input-field" id="type" name="type" onChange={onTicketChange} value={ticketForm.type}>
+            <Field label="Type">
+              <select className="input-field mt-2" name="type" onChange={onTicketChange} value={ticketForm.type}>
                 <option value="task">Task</option>
                 <option value="bug">Bug</option>
                 <option value="feature">Feature</option>
                 <option value="improvement">Improvement</option>
               </select>
-            </label>
+            </Field>
           </div>
 
-          <label className="mt-4 block text-sm font-semibold text-slate-900" htmlFor="description">
-            Description
-            <textarea className="input-field min-h-28" id="description" name="description" onChange={onTicketChange} value={ticketForm.description} />
-          </label>
+          <Field label="Description">
+            <textarea className="input-field mt-2 min-h-28" name="description" onChange={onTicketChange} value={ticketForm.description} />
+          </Field>
 
-          <label className="mt-4 block text-sm font-semibold text-slate-900" htmlFor="urlsText">
-            Links
-            <textarea className="input-field min-h-24" id="urlsText" name="urlsText" onChange={onTicketChange} placeholder="One link per line" value={ticketForm.urlsText} />
-          </label>
+          <Field label="Links">
+            <textarea className="input-field mt-2 min-h-24" name="urlsText" onChange={onTicketChange} placeholder="One link per line" value={ticketForm.urlsText} />
+          </Field>
 
-          <label className="mt-4 block text-sm font-semibold text-slate-900" htmlFor="memberSearch">
-            Assignee
-            <input className="input-field" id="memberSearch" onChange={(event) => onMemberSearch(event.target.value)} placeholder="Search project members" value={memberSearch} />
-          </label>
+          <Field label="Assignee">
+            <input className="input-field mt-2" onChange={(event) => onMemberSearch(event.target.value)} placeholder="Search project members" value={memberSearch} />
+          </Field>
           {assignedMember ? <p className="badge badge-primary mt-3">Assigned to {assignedMember.name}</p> : null}
 
-          <div className="mt-3 max-h-52 overflow-y-auto rounded-2xl border border-slate-200 bg-white">
+          <div className="mt-3 max-h-52 overflow-y-auto rounded-2xl border border-[var(--border)] bg-background">
             {searchedMembers.map((member) => (
-              <button className="flex w-full items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 text-left last:border-b-0" key={member._id} onClick={() => onSelectAssignee(member._id)} type="button">
+              <button className="flex w-full items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3 text-left last:border-b-0" key={member._id} onClick={() => onSelectAssignee(member._id)} type="button">
                 <span>
-                  <strong className="block text-slate-900">{member.name}</strong>
+                  <strong className="block text-foreground">{member.name}</strong>
                   <span className="muted-text text-sm">{member.email}</span>
                 </span>
                 <span className={`badge ${ticketForm.assignedTo === member._id ? "badge-primary" : "badge-info"}`}>
@@ -1154,18 +1193,17 @@ function CreateTicketPage({ assignedMember, loading, memberSearch, onBack, onMem
             ))}
           </div>
 
-          <button className="primary-button mt-5 w-full" disabled={loading} type="submit">
-            {loading ? "Submitting..." : "Create ticket"}
+          <button className="primary-button mt-5 w-full" disabled={submitting} type="submit">
+            {submitting ? "Submitting..." : "Create ticket"}
           </button>
         </form>
 
         <section className="surface-muted p-5">
-          <p className="eyebrow">Context</p>
-          <h2 className="section-title mt-3">Project context</h2>
+          <h2 className="section-title">Project context</h2>
           <div className="mt-5 space-y-4">
             {(project.planning || []).map((phase, phaseIndex) => (
               <article className="surface-card p-4" key={`${project._id}-${phaseIndex}`}>
-                <h3 className="font-semibold text-slate-900">{phase.name || `Phase ${phaseIndex + 1}`}</h3>
+                <h3 className="font-semibold text-foreground">{phase.name || `Phase ${phaseIndex + 1}`}</h3>
                 <p className="muted-text mt-2 text-sm">{phase.outcome || "No phase outcome defined."}</p>
               </article>
             ))}
@@ -1177,46 +1215,43 @@ function CreateTicketPage({ assignedMember, loading, memberSearch, onBack, onMem
   );
 }
 
-function CreateRequestPage({ loading, onBack, onRequestChange, onSubmit, project, requestForm }) {
+function CreateRequestPage({ loading, onBack, onRequestChange, onSubmit, project, requestForm, submitting }) {
   if (!project) {
-    return <section className="surface-card mt-6 p-6 text-sm text-slate-500">Loading project...</section>;
+    return <section className="surface-card p-6 text-sm text-muted-foreground">Loading project...</section>;
   }
 
   return (
-    <section className="surface-card mt-6 p-6">
-      <button className="secondary-button" onClick={onBack} type="button">
-        Back to project
-      </button>
+    <section className="surface-card p-6">
+      <IconButton label="Back to project" onClick={onBack}>
+        <IconBack />
+      </IconButton>
       <form className="surface-muted mt-5 p-5" onSubmit={onSubmit}>
-        <p className="eyebrow">Team Collaboration</p>
-        <h2 className="section-title mt-3">Raise request for {project.name}</h2>
+        <h2 className="section-title">Raise request for {project.name}</h2>
+        <p className="muted-text mt-3 text-sm leading-6">Share a coordination need with the delivery team on this workspace.</p>
 
-        <label className="mt-5 block text-sm font-semibold text-slate-900" htmlFor="request-title">
-          Title
-          <input className="input-field" id="request-title" name="title" onChange={onRequestChange} required value={requestForm.title} />
-        </label>
+        <Field label="Title">
+          <input className="input-field mt-2" name="title" onChange={onRequestChange} required value={requestForm.title} />
+        </Field>
 
-        <label className="mt-4 block text-sm font-semibold text-slate-900" htmlFor="request-description">
-          Description
-          <textarea className="input-field min-h-32" id="request-description" name="description" onChange={onRequestChange} required value={requestForm.description} />
-        </label>
+        <Field label="Description">
+          <textarea className="input-field mt-2 min-h-32" name="description" onChange={onRequestChange} required value={requestForm.description} />
+        </Field>
 
-        <button className="primary-button mt-5 w-full" disabled={loading} type="submit">
-          {loading ? "Submitting..." : "Create request"}
+        <button className="primary-button mt-5 w-full" disabled={submitting} type="submit">
+          {submitting ? "Submitting..." : "Create request"}
         </button>
       </form>
     </section>
   );
 }
 
-function ShareTicketModal({ copyStatus, onClose, onCopy, onOpen, ticket }) {
+function ShareTicketModal({ onClose, onCopy, onOpen, ticket }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 px-4">
       <div className="surface-card w-full max-w-xl p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="eyebrow">Share Ticket</p>
-            <h2 className="section-title mt-3">Share {ticket.title}</h2>
+            <h2 className="section-title">Share {ticket.title}</h2>
             <p className="muted-text mt-3 text-sm leading-6">Copy this direct ticket link or open the ticket detail page.</p>
           </div>
           <button aria-label="Close share ticket dialog" className="icon-button" onClick={onClose} type="button">
@@ -1226,12 +1261,9 @@ function ShareTicketModal({ copyStatus, onClose, onCopy, onOpen, ticket }) {
           </button>
         </div>
 
-        <label className="mt-5 block text-sm font-semibold text-slate-900" htmlFor="share-ticket-link">
-          Ticket link
-          <input className="input-field" id="share-ticket-link" readOnly value={ticket.url} />
-        </label>
-
-        {copyStatus ? <p className="muted-text mt-3 text-sm">{copyStatus}</p> : null}
+        <Field label="Ticket link">
+          <input className="input-field mt-2" readOnly value={ticket.url} />
+        </Field>
 
         <div className="mt-6 flex flex-wrap justify-end gap-3">
           <button className="secondary-button" onClick={onClose} type="button">
@@ -1249,33 +1281,98 @@ function ShareTicketModal({ copyStatus, onClose, onCopy, onOpen, ticket }) {
   );
 }
 
-function InfoStat({ label, value, onClick }) {
-  const Tag = onClick ? "button" : "div";
+function Field({ children, label }) {
+  const fieldId = useId();
+
   return (
-    <Tag className={`surface-card w-full p-3 text-left ${onClick ? "cursor-pointer hover:border-violet-200 hover:shadow-md" : ""}`} onClick={onClick} type={onClick ? "button" : undefined}>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-slate-900">{value}</p>
-    </Tag>
+    <div className="mt-4 first:mt-5">
+      <label className="block text-sm font-semibold text-foreground" htmlFor={fieldId}>
+        {label}
+      </label>
+      {cloneElement(children, { id: fieldId })}
+    </div>
   );
 }
 
-function StripStat({ label, value }) {
+function SummaryRow({ children, label, value }) {
   return (
-    <div className="strip-card flex-col items-start">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
-      <p className="text-sm font-semibold text-slate-900">{value}</p>
+    <div className="summary-row">
+      <p className="summary-row-label">{label}</p>
+      <div className="summary-row-value">{children ?? value}</div>
     </div>
+  );
+}
+
+function ProjectStatusBadge({ status }) {
+  const tone = getProjectTone(status);
+
+  return (
+    <span className={`status-pill status-pill-${tone}`}>
+      <span aria-hidden="true" className={`status-dot status-dot-${tone}`} />
+      {normalizeStatus(status)}
+    </span>
+  );
+}
+
+function AgreementBadge({ attached }) {
+  return (
+    <span className={attached ? "badge badge-success" : "badge badge-warning"}>
+      <span aria-hidden="true" className={`status-dot status-dot-${attached ? "completed" : "pending"}`} />
+      {attached ? "Attached" : "Missing"}
+    </span>
   );
 }
 
 function EmptyCard({ copy }) {
   return (
     <div className="empty-state">
-      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-sm font-bold text-slate-600">
+      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted text-sm font-bold text-muted-foreground">
         OD
       </div>
-      <p className="mt-4 text-sm text-slate-700">{copy}</p>
+      <p className="muted-text mt-4 text-sm">{copy}</p>
     </div>
+  );
+}
+
+function IconButton({ children, label, onClick }) {
+  return (
+    <button aria-label={label} className="icon-button icon-button-sm" onClick={onClick} title={label} type="button">
+      {children}
+    </button>
+  );
+}
+
+function IconOpen() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 24 24">
+      <path d="M14 4h6v6M10 14L20 4M20 14v6h-6M4 10V4h6" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function IconBack() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 24 24">
+      <path d="M15 6l-6 6 6 6" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function IconShare() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 24 24">
+      <path d="M16 8l-8 4 8 4V8z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.8" />
+      <path d="M6 6v12" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+      <path d="M18 10v4" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function IconCompose() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 24 24">
+      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
   );
 }
 

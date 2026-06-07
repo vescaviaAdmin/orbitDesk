@@ -36,6 +36,12 @@ Thumbs.db
 *.swp
 *.swo
 
+# AI agent / IDE tooling (local, not shared)
+.agents/
+.cursor/
+.gemini/
+.impeccable/
+
 # Local uploads and temp files
 /uploads/
 /tmp/

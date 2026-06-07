@@ -1,5 +1,6 @@
 import { useState } from "react";
 import AuthShell from "../components/auth/AuthShell";
+import { useToast } from "../components/ui/Toast";
 import { forgotMemberPassword, loginClient, loginMember, loginWithCredentials } from "../api/auth";
 
 function persistSession(session) {
@@ -16,11 +17,10 @@ function persistSession(session) {
 }
 
 function Login() {
+  const toast = useToast();
   const [clientOtpSent, setClientOtpSent] = useState(false);
   const [form, setForm] = useState({ email: "", password: "", otp: "" });
   const [showPassword, setShowPassword] = useState(false);
-  const [status, setStatus] = useState("");
-  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   function updateField(event) {
@@ -34,16 +34,12 @@ function Login() {
 
     if (name === "email" || name === "password") {
       setClientOtpSent(false);
-      setStatus("");
-      setError("");
     }
   }
 
   async function handleLogin(event) {
     event.preventDefault();
     setLoading(true);
-    setError("");
-    setStatus("");
 
     try {
       if (clientOtpSent) {
@@ -70,13 +66,13 @@ function Login() {
 
       if (result.requiresOtp) {
         setClientOtpSent(true);
-        setStatus("A verification code has been sent to your registered email.");
+        toast.success("A verification code has been sent to your registered email.");
         return;
       }
 
       persistSession(result);
     } catch (requestError) {
-      setError(requestError.message);
+      toast.error(requestError.message);
     } finally {
       setLoading(false);
     }
@@ -84,20 +80,17 @@ function Login() {
 
   async function handleForgotPassword() {
     if (!form.email.trim()) {
-      setError("Enter your member email first.");
-      setStatus("");
+      toast.error("Enter your member email first.");
       return;
     }
 
     setLoading(true);
-    setError("");
-    setStatus("");
 
     try {
       const result = await forgotMemberPassword(form.email);
-      setStatus(result.message);
+      toast.success(result.message);
     } catch (requestError) {
-      setError(requestError.message);
+      toast.error(requestError.message);
     } finally {
       setLoading(false);
     }
@@ -170,9 +163,6 @@ function Login() {
             />
           </div>
         ) : null}
-
-        {status ? <p className="status-success">{status}</p> : null}
-        {error ? <p className="status-error">{error}</p> : null}
 
         <button
           className="neo-button h-12 w-full"
