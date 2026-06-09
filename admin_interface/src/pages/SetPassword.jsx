@@ -25,6 +25,7 @@ function SetPassword() {
   const token = useMemo(() => new URLSearchParams(window.location.search).get("token") || "", []);
   const role = useMemo(() => new URLSearchParams(window.location.search).get("role") || "member", []);
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -46,30 +47,39 @@ function SetPassword() {
   }
 
   return (
-    <main className="grid min-h-screen place-items-center bg-[#f6f8fb] px-5 py-8 text-[#151b20]">
-      <form className="w-full max-w-md rounded-lg border border-[#d8dde5] bg-white p-6 shadow-sm" onSubmit={handleSubmit}>
-        <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#6b4f1d]">OrbitDesk {role}</p>
-        <h1 className="mt-3 text-3xl font-bold">Set password</h1>
-        <label className="mt-6 block text-sm font-semibold" htmlFor="password">
+    <main className="app-shell grid place-items-center">
+      <form className="neo-panel w-full max-w-md p-6" onSubmit={handleSubmit}>
+        <p className="eyebrow">OrbitDesk {role}</p>
+        <h1 className="mt-3 text-3xl font-bold text-white">Set password</h1>
+        <label className="mt-6 block text-sm font-semibold text-white" htmlFor="password">
           New password
-          <input
-            className="mt-2 h-12 w-full rounded-md border border-[#c7ced8] px-3 outline-none focus:border-[#6b4f1d] focus:ring-2 focus:ring-[#6b4f1d]/20"
-            id="password"
-            minLength="8"
-            onChange={(event) => setPassword(event.target.value)}
-            required
-            type="password"
-            value={password}
-          />
+          <div className="mt-2 flex items-center gap-2">
+            <input
+              className="neo-input mt-0"
+              id="password"
+              minLength="8"
+              onChange={(event) => setPassword(event.target.value)}
+              required
+              type={showPassword ? "text" : "password"}
+              value={password}
+            />
+            <button
+              className="neo-button-secondary h-11 shrink-0 px-3"
+              onClick={() => setShowPassword((current) => !current)}
+              type="button"
+            >
+              {showPassword ? "Hide" : "View"}
+            </button>
+          </div>
         </label>
 
-        {!token ? <p className="mt-4 rounded-md bg-[#fde8e3] px-3 py-2 text-sm text-[#9f2f1f]">Missing setup token.</p> : null}
-        {status ? <p className="mt-4 rounded-md bg-[#e8f5eb] px-3 py-2 text-sm text-[#1b6b3a]">{status}</p> : null}
-        {error ? <p className="mt-4 rounded-md bg-[#fde8e3] px-3 py-2 text-sm text-[#9f2f1f]">{error}</p> : null}
+        {!token ? <p className="status-error mt-4">Missing setup token.</p> : null}
+        {status ? <p className="status-success mt-4">{status}</p> : null}
+        {error ? <p className="status-error mt-4">{error}</p> : null}
 
         {status ? (
           <button
-            className="mt-4 h-11 w-full rounded-md border border-[#c7ced8] bg-white font-semibold text-[#414c5a]"
+            className="neo-button-secondary mt-4 h-11 w-full"
             onClick={() =>
               window.location.assign(role === "admin" ? "/login" : `${resolveClientAppUrl()}/`)
             }
@@ -80,7 +90,7 @@ function SetPassword() {
         ) : null}
 
         <button
-          className="mt-5 h-12 w-full rounded-md bg-[#6b4f1d] font-semibold text-white transition hover:bg-[#563f16] disabled:cursor-not-allowed disabled:opacity-60"
+          className="neo-button mt-5 h-12 w-full"
           disabled={loading || !token}
           type="submit"
         >

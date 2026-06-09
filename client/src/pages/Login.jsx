@@ -1,6 +1,7 @@
 import { useState } from "react";
 import AuthShell from "../components/auth/AuthShell";
-import { loginClient, loginWithCredentials } from "../api/auth";
+import { useToast } from "../components/ui/Toast";
+import { forgotMemberPassword, loginClient, loginMember, loginWithCredentials } from "../api/auth";
 
 function persistSession(session) {
   if (session.role === "admin") {
@@ -16,24 +17,29 @@ function persistSession(session) {
 }
 
 function Login() {
+  const toast = useToast();
   const [clientOtpSent, setClientOtpSent] = useState(false);
   const [form, setForm] = useState({ email: "", password: "", otp: "" });
-  const [status, setStatus] = useState("");
-  const [error, setError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
   function updateField(event) {
+    const { name, value } = event.target;
+
     setForm((current) => ({
       ...current,
-      [event.target.name]: event.target.value,
+      [name]: value,
+      ...(name === "email" || name === "password" ? { otp: "" } : {}),
     }));
+
+    if (name === "email" || name === "password") {
+      setClientOtpSent(false);
+    }
   }
 
   async function handleLogin(event) {
     event.preventDefault();
     setLoading(true);
-    setError("");
-    setStatus("");
 
     try {
       if (clientOtpSent) {
@@ -42,20 +48,49 @@ function Login() {
         return;
       }
 
-      const result = await loginWithCredentials({
-        email: form.email,
-        password: form.password,
-      });
+      let result;
+
+      try {
+        result = await loginWithCredentials({
+          email: form.email,
+          password: form.password,
+        });
+      } catch (requestError) {
+        result = await loginMember({
+          email: form.email,
+          password: form.password,
+        }).catch(() => {
+          throw requestError;
+        });
+      }
 
       if (result.requiresOtp) {
         setClientOtpSent(true);
-        setStatus("A verification code has been sent to your registered email.");
+        toast.success("A verification code has been sent to your registered email.");
         return;
       }
 
       persistSession(result);
     } catch (requestError) {
-      setError(requestError.message);
+      toast.error(requestError.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleForgotPassword() {
+    if (!form.email.trim()) {
+      toast.error("Enter your member email first.");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const result = await forgotMemberPassword(form.email);
+      toast.success(result.message);
+    } catch (requestError) {
+      toast.error(requestError.message);
     } finally {
       setLoading(false);
     }
@@ -63,19 +98,21 @@ function Login() {
 
   return (
     <AuthShell>
-      <div className="mb-6 rounded-2xl border border-[#ccd8d0] bg-[linear-gradient(135deg,#eef3ef_0%,#f8fbf8_100%)] px-4 py-4 shadow-sm">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#2e7d68]">OrbitDesk Access</p>
-        <p className="mt-2 text-lg font-semibold text-[#23332d]">Sign in to continue your work.</p>
-        <p className="mt-1 text-sm leading-6 text-[#52635a]">Secure access for project delivery, approvals, and ongoing collaboration.</p>
+      <div className="neo-panel-soft mb-6 overflow-hidden p-5">
+        <div className="glass-chip inline-flex px-3 py-1.5">
+          <p className="eyebrow !tracking-[0.24em]">OrbitDesk Access</p>
+        </div>
+        <p className="mt-4 text-2xl font-semibold text-white">Sign in to continue your work.</p>
+        <p className="muted-text mt-2 text-sm leading-6">Secure access for project delivery, approvals, and ongoing collaboration.</p>
       </div>
 
       <form className="space-y-4" onSubmit={handleLogin}>
         <div>
-          <label className="text-sm font-semibold text-[#31423a]" htmlFor="email">
+          <label className="text-sm font-semibold text-white" htmlFor="email">
             Email
           </label>
           <input
-            className="mt-2 h-12 w-full rounded-md border border-[#bfcbc4] px-3 outline-none focus:border-[#2e7d68] focus:ring-2 focus:ring-[#2e7d68]/20"
+            className="neo-input"
             id="email"
             name="email"
             onChange={updateField}
@@ -86,27 +123,36 @@ function Login() {
         </div>
 
         <div>
-          <label className="text-sm font-semibold text-[#31423a]" htmlFor="password">
+          <label className="text-sm font-semibold text-white" htmlFor="password">
             Password
           </label>
-          <input
-            className="mt-2 h-12 w-full rounded-md border border-[#bfcbc4] px-3 outline-none focus:border-[#2e7d68] focus:ring-2 focus:ring-[#2e7d68]/20"
-            id="password"
-            name="password"
-            onChange={updateField}
-            type="password"
-            value={form.password}
-            required
-          />
+          <div className="mt-2 flex items-center gap-2">
+            <input
+              className="neo-input mt-0"
+              id="password"
+              name="password"
+              onChange={updateField}
+              type={showPassword ? "text" : "password"}
+              value={form.password}
+              required
+            />
+            <button
+              className="neo-button-secondary h-11 shrink-0 px-3"
+              onClick={() => setShowPassword((current) => !current)}
+              type="button"
+            >
+              {showPassword ? "Hide" : "View"}
+            </button>
+          </div>
         </div>
 
         {clientOtpSent ? (
           <div>
-            <label className="text-sm font-semibold text-[#31423a]" htmlFor="otp">
+            <label className="text-sm font-semibold text-white" htmlFor="otp">
               Verification code
             </label>
             <input
-              className="mt-2 h-12 w-full rounded-md border border-[#bfcbc4] px-3 outline-none focus:border-[#2e7d68] focus:ring-2 focus:ring-[#2e7d68]/20"
+              className="neo-input"
               id="otp"
               inputMode="numeric"
               maxLength="6"
@@ -118,16 +164,21 @@ function Login() {
           </div>
         ) : null}
 
-        {status ? <p className="rounded-md bg-[#e5f5ed] px-3 py-2 text-sm text-[#17633f]">{status}</p> : null}
-        {error ? <p className="rounded-md bg-[#fde8e3] px-3 py-2 text-sm text-[#9f2f1f]">{error}</p> : null}
-
         <button
-          className="h-12 w-full rounded-md bg-[#214f43] font-semibold text-white transition hover:bg-[#183d34] disabled:cursor-not-allowed disabled:opacity-60"
+          className="neo-button h-12 w-full"
           disabled={loading}
           type="submit"
         >
           {loading ? "Working..." : clientOtpSent ? "Verify OTP" : "Continue"}
         </button>
+
+        {!clientOtpSent ? (
+          <div className="flex justify-end">
+            <button className="text-sm font-semibold text-cyan-300" disabled={loading} onClick={handleForgotPassword} type="button">
+              Forgot member password?
+            </button>
+          </div>
+        ) : null}
       </form>
     </AuthShell>
   );

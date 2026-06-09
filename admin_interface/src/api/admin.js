@@ -1,4 +1,6 @@
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+import { handleAdminAuthFailure } from "../lib/session";
+
+const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:5000").replace(/\/+$/, "");
 
 export function getAdminSession() {
   return JSON.parse(localStorage.getItem("orbitdesk_admin_session") || "{}");
@@ -27,6 +29,11 @@ async function request(path, options = {}) {
 
   const data = await response.json().catch(() => ({}));
 
+  if (response.status === 401) {
+    handleAdminAuthFailure();
+    throw new Error("Session expired");
+  }
+
   if (!response.ok) {
     throw new Error(data.message || "Request failed");
   }
@@ -45,6 +52,13 @@ export function loginAdmin(credentials) {
   return request("/auth/admin/login", {
     method: "POST",
     body: JSON.stringify(credentials),
+  });
+}
+
+export function forgotAdminPassword(email) {
+  return request("/auth/admin/forgot-password", {
+    method: "POST",
+    body: JSON.stringify({ email }),
   });
 }
 
@@ -115,6 +129,13 @@ export function addProjectTicket(projectId, ticket) {
   return request(`/admin/projects/${projectId}/tickets`, {
     method: "POST",
     body: JSON.stringify(ticket),
+  });
+}
+
+export function addProjectResources(projectId, resources) {
+  return request(`/admin/projects/${projectId}/resources`, {
+    method: "POST",
+    body: JSON.stringify({ resources }),
   });
 }
 

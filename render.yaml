@@ -35,18 +35,10 @@ services:
         sync: false
       - key: CLOUDINARY_AGREEMENT_FOLDER
         value: orbitdesk/agreements
-      - key: SMTP_HOST
+      - key: RESEND_API_KEY
         sync: false
-      - key: SMTP_PORT
-        value: 587
-      - key: SMTP_SECURE
-        value: false
-      - key: SMTP_USER
-        sync: false
-      - key: SMTP_PASS
-        sync: false
-      - key: SMTP_FROM
-        value: OrbitDesk <no-reply@orbitdesk.local>
+      - key: RESEND_FROM
+        value: OrbitDesk <onboarding@resend.dev>
 
   - type: web
     name: orbitdesk-client

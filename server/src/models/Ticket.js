@@ -17,6 +17,16 @@ const ticketSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    priority: {
+      type: String,
+      enum: ["low", "medium", "high", "critical"],
+      default: "medium",
+    },
+    type: {
+      type: String,
+      enum: ["bug", "feature", "task", "improvement"],
+      default: "task",
+    },
     urls: [
       {
         type: String,

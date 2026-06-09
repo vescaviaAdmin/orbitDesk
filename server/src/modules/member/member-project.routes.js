@@ -47,6 +47,47 @@ function resolveSprintSelection(project, sprintSelection, fastify) {
   };
 }
 
+function isValidHttpUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function normalizeResources(resources = [], member) {
+  if (!Array.isArray(resources)) {
+    return [];
+  }
+
+  return resources
+    .map((resource) => ({
+      name: String(resource?.name || "").trim(),
+      url: String(resource?.url || "").trim(),
+      addedByRole: "member",
+      addedByName: member.name || member.email,
+      addedAt: new Date(),
+    }))
+    .filter((resource) => resource.name || resource.url);
+}
+
+function validateResources(resources, fastify) {
+  resources.forEach((resource, index) => {
+    if (!resource.name) {
+      throw fastify.httpErrors.badRequest(`resource ${index + 1} name is required`);
+    }
+
+    if (!resource.url) {
+      throw fastify.httpErrors.badRequest(`resource ${index + 1} url is required`);
+    }
+
+    if (!isValidHttpUrl(resource.url)) {
+      throw fastify.httpErrors.badRequest(`resource ${index + 1} must use a valid http or https URL`);
+    }
+  });
+}
+
 async function memberProjectRoutes(fastify) {
   fastify.get("/member/projects", async (request) => {
     const member = await requireMember(request, fastify);
@@ -54,7 +95,7 @@ async function memberProjectRoutes(fastify) {
     const projects = await Project.find({ members: member._id, ownerAdmin: member.ownerAdmin })
       .sort({ createdAt: -1 })
       .populate("members", "name email status")
-      .select("name clientEmail status description planning members createdAt");
+      .select("name clientEmail clientCompany status description repositoryUrl category resources planning members createdAt");
 
     return {
       projects,
@@ -65,7 +106,7 @@ async function memberProjectRoutes(fastify) {
     const member = await requireMember(request, fastify);
     const project = await Project.findOne({ _id: request.params.projectId, ownerAdmin: member.ownerAdmin })
       .populate("members", "name email status")
-      .select("name clientEmail status description planning members createdAt");
+      .select("name clientEmail clientCompany status description repositoryUrl category resources planning members createdAt");
 
     if (!project || !hasProjectMember(project, member.id)) {
       throw fastify.httpErrors.notFound("Project not found");
@@ -123,10 +164,27 @@ async function memberProjectRoutes(fastify) {
 
   fastify.post("/member/projects/:projectId/tickets", async (request, reply) => {
     const member = await requireMember(request, fastify);
-    const { title, description = "", assignedTo, deadline, sprintSelection, status = "open", urls = [] } = request.body || {};
+    const {
+      title,
+      description = "",
+      assignedTo,
+      deadline,
+      sprintSelection = "",
+      status = "open",
+      priority = "medium",
+      type = "task",
+      urls = [],
+    } = request.body || {};
+    const normalizedTitle = String(title || "").trim();
+    const normalizedDescription = String(description || "").trim();
+    const parsedDeadline = new Date(deadline);
 
-    if (!title || !assignedTo || !deadline || !sprintSelection) {
-      throw fastify.httpErrors.badRequest("title, assignedTo, deadline, and sprintSelection are required");
+    if (!normalizedTitle || !assignedTo || !deadline) {
+      throw fastify.httpErrors.badRequest("title, assignedTo, and deadline are required");
+    }
+
+    if (Number.isNaN(parsedDeadline.getTime())) {
+      throw fastify.httpErrors.badRequest("deadline must be a valid date");
     }
 
     if (!mongoose.Types.ObjectId.isValid(assignedTo)) {
@@ -135,6 +193,14 @@ async function memberProjectRoutes(fastify) {
 
     if (!["open", "in_progress", "resolved"].includes(status)) {
       throw fastify.httpErrors.badRequest("status must be open, in_progress, or resolved");
+    }
+
+    if (!["low", "medium", "high", "critical"].includes(priority)) {
+      throw fastify.httpErrors.badRequest("priority must be low, medium, high, or critical");
+    }
+
+    if (!["bug", "feature", "task", "improvement"].includes(type)) {
+      throw fastify.httpErrors.badRequest("type must be bug, feature, task, or improvement");
     }
 
     const normalizedUrls = Array.isArray(urls) ? urls.filter(Boolean) : [];
@@ -152,14 +218,16 @@ async function memberProjectRoutes(fastify) {
       throw fastify.httpErrors.badRequest("Ticket can only be assigned to a member in this project");
     }
 
-    const sprint = resolveSprintSelection(project, sprintSelection, fastify);
+    const sprint = sprintSelection ? resolveSprintSelection(project, sprintSelection, fastify) : undefined;
 
     const ticket = await Ticket.create({
       project: project._id,
-      title,
-      description,
+      title: normalizedTitle,
+      description: normalizedDescription,
+      priority,
+      type,
       urls: normalizedUrls,
-      deadline: new Date(deadline),
+      deadline: parsedDeadline,
       createdBy: member._id,
       assignedTo,
       sprint,
@@ -170,12 +238,29 @@ async function memberProjectRoutes(fastify) {
     await ticket.populate("createdBy", "name email");
     await ticket.populate("assignedTo", "name email");
     await ticket.populate("project", "name");
-    await sendTicketAssignedMail(fastify, ticket.assignedTo, ticket, project);
+
+    let message = "Ticket raised successfully";
+
+    try {
+      await sendTicketAssignedMail(fastify, ticket.assignedTo, ticket, project);
+      message = "Ticket raised and assignee notified by email";
+    } catch (mailError) {
+      fastify.log.warn(
+        {
+          err: mailError,
+          memberId: ticket.assignedTo?._id,
+          projectId: project._id,
+          ticketId: ticket._id,
+        },
+        "Ticket was created but assignment email could not be sent",
+      );
+      message = "Ticket raised successfully, but the email notification could not be sent";
+    }
 
     reply.code(201);
     return {
       ticket,
-      message: "Ticket raised and assignee notified by email",
+      message,
     };
   });
 
@@ -238,6 +323,31 @@ async function memberProjectRoutes(fastify) {
     return {
       request: createdRequest,
       message: "Request raised for admin review",
+    };
+  });
+
+  fastify.post("/member/projects/:projectId/resources", async (request) => {
+    const member = await requireMember(request, fastify);
+    const project = await Project.findOne({ _id: request.params.projectId, ownerAdmin: member.ownerAdmin })
+      .populate("members", "name email status");
+
+    if (!project || !hasProjectMember(project, member.id)) {
+      throw fastify.httpErrors.notFound("Project not found");
+    }
+
+    const normalizedResources = normalizeResources(request.body?.resources, member);
+
+    if (!normalizedResources.length) {
+      throw fastify.httpErrors.badRequest("At least one resource is required");
+    }
+
+    validateResources(normalizedResources, fastify);
+    project.resources.push(...normalizedResources);
+    await project.save();
+
+    return {
+      project,
+      message: normalizedResources.length === 1 ? "Project resource added" : "Project resources added",
     };
   });
 }

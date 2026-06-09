@@ -1,6 +1,6 @@
 import Admin from "../../models/Admin.js";
 import env from "../../config/env.js";
-import { sendAdminPasswordSetup } from "../mail/mail.service.js";
+import { sendAdminPasswordReset, sendAdminPasswordSetup } from "../mail/mail.service.js";
 import { compareSecret, hashSecret } from "../../utils/password.js";
 import { createSecureToken, createSessionToken } from "../../utils/tokens.js";
 import { assertEmailAvailable, buildDisplayNameFromEmail, normalizeEmail } from "../../utils/identity.js";
@@ -80,6 +80,28 @@ async function adminAuthRoutes(fastify) {
     };
   });
 
+  fastify.post("/auth/admin/forgot-password", async (request) => {
+    const normalizedEmail = normalizeEmail(request.body?.email);
+
+    if (!normalizedEmail) {
+      throw fastify.httpErrors.badRequest("email is required");
+    }
+
+    const admin = await Admin.findOne({ email: normalizedEmail });
+
+    if (admin && admin.status === "active") {
+      const resetToken = createSecureToken();
+      admin.passwordSetTokenHash = await hashSecret(resetToken);
+      admin.passwordSetTokenExpiresAt = new Date(Date.now() + 60 * 60 * 1000);
+      await admin.save();
+      await sendAdminPasswordReset(fastify, admin, resetToken);
+    }
+
+    return {
+      message: "If that admin account exists, a reset link has been sent.",
+    };
+  });
+
   fastify.post("/auth/admin/set-password", async (request) => {
     const { token, password } = request.body || {};
 
@@ -89,7 +111,7 @@ async function adminAuthRoutes(fastify) {
 
     const admins = await Admin.find({
       passwordSetTokenExpiresAt: { $gt: new Date() },
-      status: "invited",
+      status: { $in: ["invited", "active"] },
     });
 
     const admin = await admins.reduce(async (matchedPromise, currentAdmin) => {

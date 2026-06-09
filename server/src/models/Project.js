@@ -76,6 +76,36 @@ const planningPhaseSchema = new mongoose.Schema(
   { _id: false },
 );
 
+const projectResourceSchema = new mongoose.Schema(
+  {
+    name: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    url: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    addedByRole: {
+      type: String,
+      enum: ["admin", "member"],
+      default: "admin",
+    },
+    addedByName: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    addedAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+  { _id: false },
+);
+
 const projectSchema = new mongoose.Schema(
   {
     name: {
@@ -99,6 +129,22 @@ const projectSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    repositoryUrl: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    category: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    clientCompany: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    resources: [projectResourceSchema],
     planning: [planningPhaseSchema],
     members: [
       {

@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:5000").replace(/\/+$/, "");
 
 async function request(path, options = {}) {
   const response = await fetch(`${API_URL}${path}`, {
@@ -43,5 +43,12 @@ export function loginMember(credentials) {
   return request("/auth/member/login", {
     method: "POST",
     body: JSON.stringify(credentials),
+  });
+}
+
+export function forgotMemberPassword(email) {
+  return request("/auth/member/forgot-password", {
+    method: "POST",
+    body: JSON.stringify({ email }),
   });
 }

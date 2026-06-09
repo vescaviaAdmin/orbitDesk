@@ -5,7 +5,7 @@ import Project from "../../models/Project.js";
 import Request from "../../models/Request.js";
 import Ticket from "../../models/Ticket.js";
 import Issue from "../../models/Issue.js";
-import { sendClientPasswordSetup, sendMemberPasswordSetup } from "../mail/mail.service.js";
+import { sendClientPasswordSetup, sendMemberPasswordSetup, sendTicketAssignedMail } from "../mail/mail.service.js";
 import { createSecureToken } from "../../utils/tokens.js";
 import { hashSecret } from "../../utils/password.js";
 import { uploadAgreementDocument } from "../uploads/agreement.service.js";
@@ -62,6 +62,47 @@ function normalizePlanning(planning = []) {
         };
       })
     : [];
+}
+
+function isValidHttpUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function normalizeResources(resources = [], actor) {
+  if (!Array.isArray(resources)) {
+    return [];
+  }
+
+  return resources
+    .map((resource) => ({
+      name: String(resource?.name || "").trim(),
+      url: String(resource?.url || "").trim(),
+      addedByRole: actor.role,
+      addedByName: actor.name,
+      addedAt: new Date(),
+    }))
+    .filter((resource) => resource.name || resource.url);
+}
+
+function validateResources(resources, fastify) {
+  resources.forEach((resource, index) => {
+    if (!resource.name) {
+      throw fastify.httpErrors.badRequest(`resource ${index + 1} name is required`);
+    }
+
+    if (!resource.url) {
+      throw fastify.httpErrors.badRequest(`resource ${index + 1} url is required`);
+    }
+
+    if (!isValidHttpUrl(resource.url)) {
+      throw fastify.httpErrors.badRequest(`resource ${index + 1} must use a valid http or https URL`);
+    }
+  });
 }
 
 function resolveSprintSelection(project, sprintSelection, fastify) {
@@ -191,7 +232,18 @@ async function adminRoutes(fastify) {
 
   fastify.post("/admin/projects", async (request, reply) => {
     const admin = await requireAdmin(request, fastify);
-    const { name, clientEmail = "", status = "planned", description = "", planning = [] } = request.body || {};
+    const {
+      name,
+      clientEmail = "",
+      clientCompany = "",
+      status = "planned",
+      description = "",
+      repositoryUrl = "",
+      category = "",
+      resources = [],
+      planning = [],
+      memberIds = [],
+    } = request.body || {};
     const normalizedClientEmail = normalizeEmail(clientEmail);
 
     if (!name) {
@@ -205,14 +257,30 @@ async function adminRoutes(fastify) {
       }
     }
 
+    const activeMembers = await Member.find({
+      _id: { $in: Array.isArray(memberIds) ? memberIds : [] },
+      status: "active",
+      ownerAdmin: admin._id,
+    }).select("_id");
+
     const normalizedPlanning = normalizePlanning(planning);
+    const normalizedResources = normalizeResources(resources, {
+      role: "admin",
+      name: admin.name || admin.email,
+    });
+    validateResources(normalizedResources, fastify);
 
     const project = await Project.create({
       name,
       clientEmail: normalizedClientEmail,
+      clientCompany,
       status,
       description,
+      repositoryUrl,
+      category,
+      resources: normalizedResources,
       planning: normalizedPlanning,
+      members: activeMembers.map((member) => member._id),
       ownerAdmin: admin._id,
     });
 
@@ -228,7 +296,7 @@ async function adminRoutes(fastify) {
 
     const projects = await Project.find({ ownerAdmin: admin._id })
       .sort({ createdAt: -1 })
-      .select("name clientEmail status description planning members createdAt")
+      .select("name clientEmail clientCompany status description repositoryUrl category resources planning members createdAt")
       .populate({
         path: "members",
         select: "name email status",
@@ -274,7 +342,7 @@ async function adminRoutes(fastify) {
         select: "name email status",
         match: { ownerAdmin: admin._id },
       })
-      .select("name clientEmail status description planning members createdAt");
+      .select("name clientEmail clientCompany status description repositoryUrl category resources planning members createdAt");
 
     if (!project) {
       throw fastify.httpErrors.notFound("Project not found");
@@ -282,6 +350,7 @@ async function adminRoutes(fastify) {
 
     const tickets = await Ticket.find({ project: project.id, ownerAdmin: admin._id })
       .sort({ createdAt: -1 })
+      .populate("project", "name")
       .populate("createdBy", "name email")
       .populate("createdByAdmin", "name email")
       .populate("assignedTo", "name email");
@@ -347,14 +416,32 @@ async function adminRoutes(fastify) {
 
   fastify.post("/admin/projects/:projectId/tickets", async (request, reply) => {
     const admin = await requireAdmin(request, fastify);
-    const { title, description = "", assignedTo, deadline, sprintSelection, status = "open", urls = [] } = request.body || {};
+    const {
+      title,
+      description = "",
+      assignedTo,
+      deadline,
+      sprintSelection = "",
+      status = "open",
+      priority = "medium",
+      type = "task",
+      urls = [],
+    } = request.body || {};
 
-    if (!title || !assignedTo || !deadline || !sprintSelection) {
-      throw fastify.httpErrors.badRequest("title, assignedTo, deadline, and sprintSelection are required");
+    if (!title || !assignedTo || !deadline) {
+      throw fastify.httpErrors.badRequest("title, assignedTo, and deadline are required");
     }
 
-    if (!["open", "in_progress", "resolved"].includes(status)) {
-      throw fastify.httpErrors.badRequest("status must be open, in_progress, or resolved");
+    if (!["open", "in_progress", "resolved", "closed"].includes(status)) {
+      throw fastify.httpErrors.badRequest("status must be open, in_progress, resolved, or closed");
+    }
+
+    if (!["low", "medium", "high", "critical"].includes(priority)) {
+      throw fastify.httpErrors.badRequest("priority must be low, medium, high, or critical");
+    }
+
+    if (!["bug", "feature", "task", "improvement"].includes(type)) {
+      throw fastify.httpErrors.badRequest("type must be bug, feature, task, or improvement");
     }
 
     const project = await Project.findOne({ _id: request.params.projectId, ownerAdmin: admin._id }).populate("members", "_id name email");
@@ -368,12 +455,14 @@ async function adminRoutes(fastify) {
     }
 
     const normalizedUrls = Array.isArray(urls) ? urls.filter(Boolean) : [];
-    const sprint = resolveSprintSelection(project, sprintSelection, fastify);
+    const sprint = sprintSelection ? resolveSprintSelection(project, sprintSelection, fastify) : undefined;
 
     const ticket = await Ticket.create({
       project: project._id,
       title,
       description,
+      priority,
+      type,
       urls: normalizedUrls,
       deadline: new Date(deadline),
       createdByAdmin: admin._id,
@@ -387,10 +476,60 @@ async function adminRoutes(fastify) {
     await ticket.populate("assignedTo", "name email");
     await ticket.populate("project", "name");
 
+    let message = "Ticket raised and assigned to project member";
+
+    try {
+      await sendTicketAssignedMail(fastify, ticket.assignedTo, ticket, project);
+      message = "Ticket raised, assigned, and assignee notified by email";
+    } catch (mailError) {
+      fastify.log.warn(
+        {
+          err: mailError,
+          memberId: ticket.assignedTo?._id,
+          projectId: project._id,
+          ticketId: ticket._id,
+        },
+        "Ticket was created by admin but assignment email could not be sent",
+      );
+      message = "Ticket raised and assigned, but the email notification could not be sent";
+    }
+
     reply.code(201);
     return {
       ticket,
-      message: "Ticket raised and assigned to project member",
+      message,
+    };
+  });
+
+  fastify.post("/admin/projects/:projectId/resources", async (request) => {
+    const admin = await requireAdmin(request, fastify);
+    const project = await Project.findOne({ _id: request.params.projectId, ownerAdmin: admin._id })
+      .populate({
+        path: "members",
+        select: "name email status",
+        match: { ownerAdmin: admin._id },
+      });
+
+    if (!project) {
+      throw fastify.httpErrors.notFound("Project not found");
+    }
+
+    const normalizedResources = normalizeResources(request.body?.resources, {
+      role: "admin",
+      name: admin.name || admin.email,
+    });
+
+    if (!normalizedResources.length) {
+      throw fastify.httpErrors.badRequest("At least one resource is required");
+    }
+
+    validateResources(normalizedResources, fastify);
+    project.resources.push(...normalizedResources);
+    await project.save();
+
+    return {
+      project,
+      message: normalizedResources.length === 1 ? "Project resource added" : "Project resources added",
     };
   });
 

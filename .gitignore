@@ -1,5 +1,7 @@
 # Dependencies
 node_modules/
+**/node_modules/
+admin_interface/node_modules/
 package-lock.json
 
 # Build output
@@ -33,6 +35,12 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# AI agent / IDE tooling (local, not shared)
+.agents/
+.cursor/
+.gemini/
+.impeccable/
 
 # Local uploads and temp files
 /uploads/
