@@ -5,7 +5,7 @@ import Project from "../../models/Project.js";
 import Request from "../../models/Request.js";
 import Ticket from "../../models/Ticket.js";
 import Issue from "../../models/Issue.js";
-import { sendClientPasswordSetup, sendMemberPasswordSetup } from "../mail/mail.service.js";
+import { sendClientPasswordSetup, sendMemberPasswordSetup, sendTicketAssignedMail } from "../mail/mail.service.js";
 import { createSecureToken } from "../../utils/tokens.js";
 import { hashSecret } from "../../utils/password.js";
 import { uploadAgreementDocument } from "../uploads/agreement.service.js";
@@ -476,10 +476,28 @@ async function adminRoutes(fastify) {
     await ticket.populate("assignedTo", "name email");
     await ticket.populate("project", "name");
 
+    let message = "Ticket raised and assigned to project member";
+
+    try {
+      await sendTicketAssignedMail(fastify, ticket.assignedTo, ticket, project);
+      message = "Ticket raised, assigned, and assignee notified by email";
+    } catch (mailError) {
+      fastify.log.warn(
+        {
+          err: mailError,
+          memberId: ticket.assignedTo?._id,
+          projectId: project._id,
+          ticketId: ticket._id,
+        },
+        "Ticket was created by admin but assignment email could not be sent",
+      );
+      message = "Ticket raised and assigned, but the email notification could not be sent";
+    }
+
     reply.code(201);
     return {
       ticket,
-      message: "Ticket raised and assigned to project member",
+      message,
     };
   });
 
