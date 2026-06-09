@@ -3,6 +3,7 @@ import {
   addClient,
   addMember,
   addProject,
+  addProjectResources,
   addProjectTicket,
   clearAdminSession,
   getAdminSession,
@@ -24,6 +25,7 @@ import ClientOnboardingForm from "../components/clients/ClientOnboardingForm";
 import ProjectCard from "../components/projects/ProjectCard";
 import ProjectOnboardingForm from "../components/projects/ProjectOnboardingForm";
 import ProjectWorkspacePage from "../components/projects/ProjectWorkspacePage";
+import { isSessionExpiredError } from "../lib/session";
 
 const emptyForms = {
   client: { name: "", email: "", company: "", phone: "", agreement: null },
@@ -36,6 +38,7 @@ const emptyForms = {
     description: "",
     repositoryUrl: "",
     category: "",
+    resources: [],
     planning: [],
     memberIds: [],
   },
@@ -293,6 +296,9 @@ function AdminDashboard() {
       setRequests(requestData.requests || []);
       setIssues(issueData.issues || []);
     } catch (requestError) {
+      if (isSessionExpiredError(requestError)) {
+        return;
+      }
       if (requestError.message.includes("Authentication") || requestError.message.includes("admin account")) {
         clearAdminSession();
         setAdminSession({});
@@ -322,6 +328,9 @@ function AdminDashboard() {
         },
       }));
     } catch (requestError) {
+      if (isSessionExpiredError(requestError)) {
+        return;
+      }
       setError(requestError.message);
     } finally {
       setLoading(false);
@@ -342,6 +351,9 @@ function AdminDashboard() {
         setCurrentAdmin(data.admin || adminSession.user || null);
         await loadDashboard();
       } catch (requestError) {
+        if (isSessionExpiredError(requestError)) {
+          return;
+        }
         clearAdminSession();
         setAdminSession({});
         setCurrentAdmin(null);
@@ -422,6 +434,41 @@ function AdminDashboard() {
           memberIds: current.project.memberIds.includes(action.memberId)
             ? current.project.memberIds.filter((memberId) => memberId !== action.memberId)
             : [...current.project.memberIds, action.memberId],
+        },
+      }));
+      return;
+    }
+
+    if (action.type === "add-resource") {
+      setForms((current) => ({
+        ...current,
+        project: {
+          ...current.project,
+          resources: [...current.project.resources, { name: "", url: "" }],
+        },
+      }));
+      return;
+    }
+
+    if (action.type === "remove-resource") {
+      setForms((current) => ({
+        ...current,
+        project: {
+          ...current.project,
+          resources: current.project.resources.filter((_, index) => index !== action.index),
+        },
+      }));
+      return;
+    }
+
+    if (action.type === "change-resource") {
+      setForms((current) => ({
+        ...current,
+        project: {
+          ...current.project,
+          resources: current.project.resources.map((resource, index) =>
+            index === action.index ? { ...resource, [action.name]: action.value } : resource,
+          ),
         },
       }));
       return;
@@ -589,6 +636,9 @@ function AdminDashboard() {
       await loadDashboard();
       routeTo(nextPath);
     } catch (requestError) {
+      if (isSessionExpiredError(requestError)) {
+        return;
+      }
       setError(requestError.message);
     } finally {
       setLoading(false);
@@ -607,6 +657,10 @@ function AdminDashboard() {
         description: forms.project.description.trim(),
         repositoryUrl: forms.project.repositoryUrl.trim(),
         clientCompany: forms.project.clientCompany.trim(),
+        resources: forms.project.resources.map((resource) => ({
+          name: resource.name.trim(),
+          url: resource.url.trim(),
+        })),
       };
 
       const data = await addProject(payload);
@@ -616,6 +670,9 @@ function AdminDashboard() {
       await loadDashboard();
       routeTo("/projects");
     } catch (requestError) {
+      if (isSessionExpiredError(requestError)) {
+        return;
+      }
       setError(requestError.message);
     } finally {
       setLoading(false);
@@ -644,6 +701,9 @@ function AdminDashboard() {
       setStatus(data.message);
       await loadDashboard();
     } catch (requestError) {
+      if (isSessionExpiredError(requestError)) {
+        return;
+      }
       setError(requestError.message);
     } finally {
       setLoading(false);
@@ -689,6 +749,33 @@ function AdminDashboard() {
         onSuccess();
       }
     } catch (requestError) {
+      if (isSessionExpiredError(requestError)) {
+        return;
+      }
+      setError(requestError.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function saveProjectResources(resources) {
+    if (!selectedProject) {
+      return;
+    }
+
+    setLoading(true);
+    setStatus("");
+    setError("");
+
+    try {
+      const data = await addProjectResources(selectedProject._id, resources);
+      setSelectedProject(data.project);
+      setStatus(data.message);
+      await loadDashboard();
+    } catch (requestError) {
+      if (isSessionExpiredError(requestError)) {
+        return;
+      }
       setError(requestError.message);
     } finally {
       setLoading(false);
@@ -709,6 +796,9 @@ function AdminDashboard() {
       setSelectedProject(data.project);
       setStatus(data.message);
     } catch (requestError) {
+      if (isSessionExpiredError(requestError)) {
+        return;
+      }
       setError(requestError.message);
     } finally {
       setLoading(false);
@@ -908,6 +998,7 @@ function AdminDashboard() {
             <ProjectWorkspacePage
               key={selectedProject?._id || projectIdFromPath}
               loading={loading}
+              onAddResources={saveProjectResources}
               memberSearch={memberSearch}
               onBack={() => routeTo("/projects")}
               onCreateTicket={createAdminProjectTicket}

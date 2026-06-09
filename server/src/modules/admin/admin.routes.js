@@ -64,6 +64,47 @@ function normalizePlanning(planning = []) {
     : [];
 }
 
+function isValidHttpUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function normalizeResources(resources = [], actor) {
+  if (!Array.isArray(resources)) {
+    return [];
+  }
+
+  return resources
+    .map((resource) => ({
+      name: String(resource?.name || "").trim(),
+      url: String(resource?.url || "").trim(),
+      addedByRole: actor.role,
+      addedByName: actor.name,
+      addedAt: new Date(),
+    }))
+    .filter((resource) => resource.name || resource.url);
+}
+
+function validateResources(resources, fastify) {
+  resources.forEach((resource, index) => {
+    if (!resource.name) {
+      throw fastify.httpErrors.badRequest(`resource ${index + 1} name is required`);
+    }
+
+    if (!resource.url) {
+      throw fastify.httpErrors.badRequest(`resource ${index + 1} url is required`);
+    }
+
+    if (!isValidHttpUrl(resource.url)) {
+      throw fastify.httpErrors.badRequest(`resource ${index + 1} must use a valid http or https URL`);
+    }
+  });
+}
+
 function resolveSprintSelection(project, sprintSelection, fastify) {
   const [phaseIndexRaw, sprintIndexRaw] = String(sprintSelection || "").split(":");
   const phaseIndex = Number(phaseIndexRaw);
@@ -199,6 +240,7 @@ async function adminRoutes(fastify) {
       description = "",
       repositoryUrl = "",
       category = "",
+      resources = [],
       planning = [],
       memberIds = [],
     } = request.body || {};
@@ -222,6 +264,11 @@ async function adminRoutes(fastify) {
     }).select("_id");
 
     const normalizedPlanning = normalizePlanning(planning);
+    const normalizedResources = normalizeResources(resources, {
+      role: "admin",
+      name: admin.name || admin.email,
+    });
+    validateResources(normalizedResources, fastify);
 
     const project = await Project.create({
       name,
@@ -231,6 +278,7 @@ async function adminRoutes(fastify) {
       description,
       repositoryUrl,
       category,
+      resources: normalizedResources,
       planning: normalizedPlanning,
       members: activeMembers.map((member) => member._id),
       ownerAdmin: admin._id,
@@ -248,7 +296,7 @@ async function adminRoutes(fastify) {
 
     const projects = await Project.find({ ownerAdmin: admin._id })
       .sort({ createdAt: -1 })
-      .select("name clientEmail clientCompany status description repositoryUrl category planning members createdAt")
+      .select("name clientEmail clientCompany status description repositoryUrl category resources planning members createdAt")
       .populate({
         path: "members",
         select: "name email status",
@@ -294,7 +342,7 @@ async function adminRoutes(fastify) {
         select: "name email status",
         match: { ownerAdmin: admin._id },
       })
-      .select("name clientEmail clientCompany status description repositoryUrl category planning members createdAt");
+      .select("name clientEmail clientCompany status description repositoryUrl category resources planning members createdAt");
 
     if (!project) {
       throw fastify.httpErrors.notFound("Project not found");
@@ -432,6 +480,38 @@ async function adminRoutes(fastify) {
     return {
       ticket,
       message: "Ticket raised and assigned to project member",
+    };
+  });
+
+  fastify.post("/admin/projects/:projectId/resources", async (request) => {
+    const admin = await requireAdmin(request, fastify);
+    const project = await Project.findOne({ _id: request.params.projectId, ownerAdmin: admin._id })
+      .populate({
+        path: "members",
+        select: "name email status",
+        match: { ownerAdmin: admin._id },
+      });
+
+    if (!project) {
+      throw fastify.httpErrors.notFound("Project not found");
+    }
+
+    const normalizedResources = normalizeResources(request.body?.resources, {
+      role: "admin",
+      name: admin.name || admin.email,
+    });
+
+    if (!normalizedResources.length) {
+      throw fastify.httpErrors.badRequest("At least one resource is required");
+    }
+
+    validateResources(normalizedResources, fastify);
+    project.resources.push(...normalizedResources);
+    await project.save();
+
+    return {
+      project,
+      message: normalizedResources.length === 1 ? "Project resource added" : "Project resources added",
     };
   });
 

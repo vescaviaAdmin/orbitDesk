@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { StatusBadge } from "../ui/Badges";
 import EmptyState from "../ui/EmptyState";
 import CreateTicketDialog from "../tickets/CreateTicketDialog";
@@ -15,6 +15,7 @@ const tabs = [
 function ProjectWorkspacePage({
   loading,
   memberSearch,
+  onAddResources,
   onBack,
   onCreateTicket,
   onSaveMembers,
@@ -29,6 +30,11 @@ function ProjectWorkspacePage({
   const [activeTab, setActiveTab] = useState("overview");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState(null);
+  const [resourceRows, setResourceRows] = useState([]);
+
+  useEffect(() => {
+    setResourceRows([]);
+  }, [project?._id]);
 
   const summary = useMemo(
     () => ({
@@ -47,6 +53,36 @@ function ProjectWorkspacePage({
         <div className="loading-skeleton mt-4 h-28 w-full" />
       </section>
     );
+  }
+
+  const projectResources = project.resources || [];
+
+  function addResourceRow() {
+    setResourceRows((current) => [...current, { name: "", url: "" }]);
+  }
+
+  function updateResourceRow(index, field, value) {
+    setResourceRows((current) => current.map((resource, currentIndex) => (currentIndex === index ? { ...resource, [field]: value } : resource)));
+  }
+
+  function removeResourceRow(index) {
+    setResourceRows((current) => current.filter((_, currentIndex) => currentIndex !== index));
+  }
+
+  async function handleSaveResources() {
+    const normalizedResources = resourceRows
+      .map((resource) => ({
+        name: resource.name.trim(),
+        url: resource.url.trim(),
+      }))
+      .filter((resource) => resource.name || resource.url);
+
+    if (!normalizedResources.length) {
+      return;
+    }
+
+    await onAddResources(normalizedResources);
+    setResourceRows([]);
   }
 
   return (
@@ -146,6 +182,72 @@ function ProjectWorkspacePage({
                 ) : null}
               </div>
             </div>
+
+            <div className="surface-card p-6">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="eyebrow">Resources</p>
+                  <h3 className="compact-panel-title mt-3">Project links and references</h3>
+                </div>
+                <button className="secondary-button" onClick={addResourceRow} type="button">
+                  Add resource
+                </button>
+              </div>
+
+              {resourceRows.length ? (
+                <div className="mt-5 space-y-3">
+                  {resourceRows.map((resource, index) => (
+                    <div className="surface-muted p-3" key={`admin-resource-row-${index}`}>
+                      <div className="grid gap-3 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)_auto] md:items-end">
+                        <label className="block text-sm font-semibold text-slate-900">
+                          Name
+                          <input
+                            className="input-field mt-2"
+                            onChange={(event) => updateResourceRow(index, "name", event.target.value)}
+                            placeholder="PRD"
+                            value={resource.name}
+                          />
+                        </label>
+
+                        <label className="block text-sm font-semibold text-slate-900">
+                          Link
+                          <input
+                            className="input-field mt-2"
+                            onChange={(event) => updateResourceRow(index, "url", event.target.value)}
+                            placeholder="https://..."
+                            value={resource.url}
+                          />
+                        </label>
+
+                        <button className="secondary-button w-full md:w-auto" onClick={() => removeResourceRow(index)} type="button">
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+
+                  <div className="flex justify-end">
+                    <button className="primary-button" disabled={loading} onClick={handleSaveResources} type="button">
+                      {loading ? "Saving..." : "Save resources"}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="mt-5 divide-y divide-slate-200">
+                {projectResources.map((resource) => (
+                  <a className="flex items-center justify-between gap-3 py-3 first:pt-0 hover:bg-slate-50" href={resource.url} key={`${resource.url}-${resource.addedAt || resource.name}`} rel="noreferrer" target="_blank">
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-slate-900">{resource.name || "Project resource"}</p>
+                      <p className="muted-text mt-1 truncate text-sm">{resource.url}</p>
+                      <p className="muted-text mt-1 text-xs">Added by {resource.addedByName || resource.addedByRole || "workspace"}</p>
+                    </div>
+                    <span className="badge badge-info">Open</span>
+                  </a>
+                ))}
+                {!projectResources.length ? <EmptyState copy="No project resources linked yet." title="No resources yet" /> : null}
+              </div>
+            </div>
           </section>
 
           <aside className="detail-side-stack">
@@ -158,6 +260,7 @@ function ProjectWorkspacePage({
                 <MetaRow label="Category" value={project.category || "-"} />
                 <MetaRow label="Client email" value={project.clientEmail || "-"} />
                 <MetaRow label="Repository" value={project.repositoryUrl || "-"} />
+                <MetaRow label="Resources" value={projectResources.length} />
               </div>
             </div>
 

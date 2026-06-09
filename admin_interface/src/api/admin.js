@@ -1,3 +1,5 @@
+import { handleAdminAuthFailure } from "../lib/session";
+
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:5000").replace(/\/+$/, "");
 
 export function getAdminSession() {
@@ -26,6 +28,11 @@ async function request(path, options = {}) {
   });
 
   const data = await response.json().catch(() => ({}));
+
+  if (response.status === 401) {
+    handleAdminAuthFailure();
+    throw new Error("Session expired");
+  }
 
   if (!response.ok) {
     throw new Error(data.message || "Request failed");
@@ -122,6 +129,13 @@ export function addProjectTicket(projectId, ticket) {
   return request(`/admin/projects/${projectId}/tickets`, {
     method: "POST",
     body: JSON.stringify(ticket),
+  });
+}
+
+export function addProjectResources(projectId, resources) {
+  return request(`/admin/projects/${projectId}/resources`, {
+    method: "POST",
+    body: JSON.stringify({ resources }),
   });
 }
 

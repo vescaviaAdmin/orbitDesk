@@ -1,5 +1,6 @@
 import { cloneElement, useEffect, useId, useMemo, useState } from "react";
 import {
+  addMemberProjectResources,
   getMemberProject,
   getMemberTicket,
   listMemberProjects,
@@ -25,6 +26,7 @@ import {
   projectExpectedTime,
 } from "../../lib/member-utils";
 import { routeTo } from "../../lib/navigation";
+import { clearPortalSession, getPortalSession, isSessionExpiredError, redirectToPortalLogin } from "../../lib/session";
 
 const emptyTicket = {
   title: "",
@@ -124,7 +126,7 @@ function getInitials(value) {
 
 function MemberDashboard() {
   const toast = useToast();
-  const session = JSON.parse(localStorage.getItem("orbitdesk_session") || "{}");
+  const session = getPortalSession();
   const [path, setPath] = useState(window.location.pathname);
   const [search, setSearch] = useState(window.location.search);
   const [projects, setProjects] = useState([]);
@@ -179,15 +181,35 @@ function MemberDashboard() {
 
   const documentsFeed = useMemo(
     () =>
-      projectDirectory
-        .filter((entry) => entry.client?.agreementDocument?.url)
-        .map((entry) => ({
+      projectDirectory.flatMap((entry) => {
+        const agreementItems = entry.client?.agreementDocument?.url
+          ? [
+              {
+                project: entry.project,
+                href: entry.client.agreementDocument.url,
+                label: entry.client.agreementDocument.originalName || "Agreement document",
+                meta: "Client agreement",
+              },
+            ]
+          : [];
+
+        const resourceItems = (entry.project?.resources || []).map((resource) => ({
           project: entry.project,
-          client: entry.client,
-          document: entry.client.agreementDocument,
-        })),
+          href: resource.url,
+          label: resource.name || "Project resource",
+          meta: `Added by ${resource.addedByName || resource.addedByRole || "workspace"}`,
+        }));
+
+        return [...agreementItems, ...resourceItems];
+      }),
     [projectDirectory],
   );
+
+  useEffect(() => {
+    if (!session.token || session.role !== "member") {
+      redirectToPortalLogin();
+    }
+  }, [session.role, session.token]);
 
   useEffect(() => {
     function handleRouteChange() {
@@ -219,6 +241,9 @@ function MemberDashboard() {
       setProjects(projectData.projects || []);
       setTickets(ticketData.tickets || []);
     } catch (requestError) {
+      if (isSessionExpiredError(requestError)) {
+        return;
+      }
       toast.error(requestError.message);
     } finally {
       setLoading(false);
@@ -239,6 +264,9 @@ function MemberDashboard() {
       });
       setRequestForm(emptyRequest);
     } catch (requestError) {
+      if (isSessionExpiredError(requestError)) {
+        return;
+      }
       toast.error(requestError.message);
     } finally {
       setLoading(false);
@@ -252,6 +280,9 @@ function MemberDashboard() {
       const data = await getMemberTicket(ticketId);
       setSelectedTicket(data.ticket);
     } catch (requestError) {
+      if (isSessionExpiredError(requestError)) {
+        return;
+      }
       toast.error(requestError.message);
     } finally {
       setLoading(false);
@@ -276,6 +307,9 @@ function MemberDashboard() {
         })),
       );
     } catch (requestError) {
+      if (isSessionExpiredError(requestError)) {
+        return;
+      }
       toast.error(requestError.message);
     } finally {
       setLoading(false);
@@ -417,6 +451,9 @@ function MemberDashboard() {
         closePath: `/member/projects/${selectedProject._id}?tab=issues`,
       });
     } catch (requestError) {
+      if (isSessionExpiredError(requestError)) {
+        return;
+      }
       toast.error(requestError.message);
     } finally {
       setSubmitting(false);
@@ -443,6 +480,9 @@ function MemberDashboard() {
       toast.success(data.message);
       routeTo("/member/requests");
     } catch (requestError) {
+      if (isSessionExpiredError(requestError)) {
+        return;
+      }
       toast.error(requestError.message);
     } finally {
       setSubmitting(false);
@@ -457,6 +497,34 @@ function MemberDashboard() {
       applyTicketUpdate(data.ticket);
       toast.success(data.message);
     } catch (requestError) {
+      if (isSessionExpiredError(requestError)) {
+        return;
+      }
+      toast.error(requestError.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleProjectResourceAdd(resources) {
+    if (!selectedProject) {
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const data = await addMemberProjectResources(selectedProject._id, resources);
+      setSelectedProject(data.project);
+      setProjects((current) => current.map((project) => (project._id === data.project._id ? { ...project, ...data.project } : project)));
+      setProjectDirectory((current) =>
+        current.map((entry) => (entry.project._id === data.project._id ? { ...entry, project: data.project } : entry)),
+      );
+      toast.success(data.message);
+    } catch (requestError) {
+      if (isSessionExpiredError(requestError)) {
+        return;
+      }
       toast.error(requestError.message);
     } finally {
       setLoading(false);
@@ -601,6 +669,11 @@ function MemberDashboard() {
     routeTo(tab === "issues" ? `${basePath}?tab=issues` : basePath);
   }
 
+  function logoutMember() {
+    clearPortalSession();
+    redirectToPortalLogin();
+  }
+
   return (
     <main className="workspace-shell">
       <div className="workspace-layout">
@@ -638,6 +711,9 @@ function MemberDashboard() {
                 <p className="muted-text truncate text-xs">{session.user?.email || "Delivery team"}</p>
               </div>
             </div>
+            <button className="secondary-button mt-3 w-full" onClick={logoutMember} type="button">
+              Logout
+            </button>
           </div>
         </aside>
 
@@ -727,6 +803,7 @@ function MemberDashboard() {
             <ProjectDetail
               activeTab={activeProjectTab}
               loading={loading}
+              onAddResources={handleProjectResourceAdd}
               onStatusChange={handleStatusChange}
               project={selectedProject}
               projectClient={projectClient}
@@ -906,24 +983,30 @@ function DocumentsPage({ documents, loading }) {
       <p className="muted-text mt-2 text-sm">Client agreements and files shared with your workspaces.</p>
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
         {documents.map((item) => (
-          <article className="surface-muted p-5" key={`${item.project._id}-${item.document.url}`}>
-            <p className="font-semibold text-foreground">{item.document.originalName || "Agreement document"}</p>
+          <article className="surface-muted p-5" key={`${item.project._id}-${item.href}`}>
+            <p className="font-semibold text-foreground">{item.label}</p>
             <p className="muted-text mt-1 text-sm">{item.project.name}</p>
-            <a className="primary-button mt-4" href={item.document.url} rel="noreferrer" target="_blank">
-              Open document
+            <p className="muted-text mt-2 text-sm">{item.meta}</p>
+            <a className="primary-button mt-4" href={item.href} rel="noreferrer" target="_blank">
+              Open resource
             </a>
           </article>
         ))}
-        {!documents.length ? <EmptyCard copy={loading ? "Loading documents..." : "No documents attached to your projects yet."} /> : null}
+        {!documents.length ? <EmptyCard copy={loading ? "Loading documents..." : "No resources attached to your projects yet."} /> : null}
       </div>
     </section>
   );
 }
 
-function ProjectDetail({ activeTab = "overview", loading, onStatusChange, project, projectClient, requests, tickets }) {
+function ProjectDetail({ activeTab = "overview", loading, onAddResources, onStatusChange, project, projectClient, requests, tickets }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
   const [sort, setSort] = useState("updatedAt");
+  const [resourceRows, setResourceRows] = useState([]);
+
+  useEffect(() => {
+    setResourceRows([]);
+  }, [project?._id]);
 
   const projectTickets = useMemo(
     () => tickets.filter((ticket) => ticket.project?._id === project?._id),
@@ -947,6 +1030,47 @@ function ProjectDetail({ activeTab = "overview", loading, onStatusChange, projec
   const currentPhase = resolveCurrentPhase(project.planning || []);
   const currentSprint = resolveCurrentSprint(currentPhase);
   const projectDocuments = projectClient?.agreementDocument?.url ? [projectClient.agreementDocument] : [];
+  const projectResources = project.resources || [];
+  const resourceItems = [
+    ...projectDocuments.map((document) => ({
+      href: document.url,
+      label: document.originalName || "Agreement document",
+      meta: "Client agreement",
+    })),
+    ...projectResources.map((resource) => ({
+      href: resource.url,
+      label: resource.name || "Project resource",
+      meta: `Added by ${resource.addedByName || resource.addedByRole || "workspace"}`,
+    })),
+  ];
+
+  function addResourceRow() {
+    setResourceRows((current) => [...current, { name: "", url: "" }]);
+  }
+
+  function updateResourceRow(index, field, value) {
+    setResourceRows((current) => current.map((resource, currentIndex) => (currentIndex === index ? { ...resource, [field]: value } : resource)));
+  }
+
+  function removeResourceRow(index) {
+    setResourceRows((current) => current.filter((_, currentIndex) => currentIndex !== index));
+  }
+
+  async function saveResources() {
+    const normalizedResources = resourceRows
+      .map((resource) => ({
+        name: resource.name.trim(),
+        url: resource.url.trim(),
+      }))
+      .filter((resource) => resource.name || resource.url);
+
+    if (!normalizedResources.length) {
+      return;
+    }
+
+    await onAddResources(normalizedResources);
+    setResourceRows([]);
+  }
 
   return (
     <div className="space-y-6">
@@ -1022,27 +1146,69 @@ function ProjectDetail({ activeTab = "overview", loading, onStatusChange, projec
                 <SummaryRow label="Agreement">
                   <AgreementBadge attached={Boolean(projectDocuments.length)} />
                 </SummaryRow>
+                <SummaryRow label="Resources" value={projectResources.length} />
               </div>
             </section>
 
             <section className="surface-muted p-5">
               <div className="flex items-center justify-between gap-3">
                 <h3 className="compact-panel-title">Resources</h3>
-                <span className="glass-chip">{projectDocuments.length}</span>
+                <div className="flex items-center gap-2">
+                  <span className="glass-chip">{resourceItems.length}</span>
+                  <button className="secondary-button h-9 px-3 text-sm" onClick={addResourceRow} type="button">
+                    Add
+                  </button>
+                </div>
               </div>
-              <div className="mt-4 divide-y divide-[var(--border)]">
-                {projectDocuments.map((document) => (
-                  <div className="flex items-center justify-between gap-3 py-3 first:pt-0" key={document.url}>
-                    <div className="min-w-0">
-                      <p className="truncate font-semibold text-foreground">{document.originalName || "Agreement document"}</p>
-                      <p className="muted-text mt-1 text-sm">Client agreement</p>
+              {resourceRows.length ? (
+                <div className="mt-4 space-y-3">
+                  {resourceRows.map((resource, index) => (
+                    <div className="rounded-xl border border-[var(--border)] bg-background p-3" key={`member-resource-row-${index}`}>
+                      <div className="grid gap-3 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)_auto] md:items-end">
+                        <label className="block text-sm font-semibold text-foreground">
+                          Name
+                          <input
+                            className="input-field mt-2"
+                            onChange={(event) => updateResourceRow(index, "name", event.target.value)}
+                            placeholder="Sprint board"
+                            value={resource.name}
+                          />
+                        </label>
+                        <label className="block text-sm font-semibold text-foreground">
+                          Link
+                          <input
+                            className="input-field mt-2"
+                            onChange={(event) => updateResourceRow(index, "url", event.target.value)}
+                            placeholder="https://..."
+                            value={resource.url}
+                          />
+                        </label>
+                        <button className="secondary-button w-full md:w-auto" onClick={() => removeResourceRow(index)} type="button">
+                          Remove
+                        </button>
+                      </div>
                     </div>
-                    <a aria-label={`Open ${document.originalName || "agreement document"}`} className="icon-button icon-button-sm" href={document.url} rel="noreferrer" target="_blank" title="Open document">
+                  ))}
+                  <div className="flex justify-end">
+                    <button className="primary-button" disabled={loading} onClick={saveResources} type="button">
+                      {loading ? "Saving..." : "Save resources"}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              <div className="mt-4 divide-y divide-[var(--border)]">
+                {resourceItems.map((resource) => (
+                  <div className="flex items-center justify-between gap-3 py-3 first:pt-0" key={resource.href}>
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-foreground">{resource.label}</p>
+                      <p className="muted-text mt-1 text-sm">{resource.meta}</p>
+                    </div>
+                    <a aria-label={`Open ${resource.label}`} className="icon-button icon-button-sm" href={resource.href} rel="noreferrer" target="_blank" title="Open resource">
                       <IconOpen />
                     </a>
                   </div>
                 ))}
-                {!projectDocuments.length ? <EmptyCard copy="No project documents attached yet." /> : null}
+                {!resourceItems.length ? <EmptyCard copy="No project resources attached yet." /> : null}
               </div>
             </section>
           </aside>
@@ -1086,6 +1252,7 @@ function TicketDetail({ loading, onStatusChange, ticket }) {
               />
             </SummaryRow>
             <SummaryRow label="Assignee" value={ticket.assignedTo?.name || ticket.assignedTo?.email || "Unassigned"} />
+            <SummaryRow label="Priority" value={normalizeStatus(ticket.priority || "medium")} />
             <SummaryRow label="Due" value={formatDate(ticket.deadline)} />
             <SummaryRow label="Sprint" value={ticket.sprint?.sprintName || "Not set"} />
             <SummaryRow label="Project" value={ticket.project?.name || "-"} />
