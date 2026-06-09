@@ -47,6 +47,47 @@ function resolveSprintSelection(project, sprintSelection, fastify) {
   };
 }
 
+function isValidHttpUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function normalizeResources(resources = [], member) {
+  if (!Array.isArray(resources)) {
+    return [];
+  }
+
+  return resources
+    .map((resource) => ({
+      name: String(resource?.name || "").trim(),
+      url: String(resource?.url || "").trim(),
+      addedByRole: "member",
+      addedByName: member.name || member.email,
+      addedAt: new Date(),
+    }))
+    .filter((resource) => resource.name || resource.url);
+}
+
+function validateResources(resources, fastify) {
+  resources.forEach((resource, index) => {
+    if (!resource.name) {
+      throw fastify.httpErrors.badRequest(`resource ${index + 1} name is required`);
+    }
+
+    if (!resource.url) {
+      throw fastify.httpErrors.badRequest(`resource ${index + 1} url is required`);
+    }
+
+    if (!isValidHttpUrl(resource.url)) {
+      throw fastify.httpErrors.badRequest(`resource ${index + 1} must use a valid http or https URL`);
+    }
+  });
+}
+
 async function memberProjectRoutes(fastify) {
   fastify.get("/member/projects", async (request) => {
     const member = await requireMember(request, fastify);
@@ -54,7 +95,7 @@ async function memberProjectRoutes(fastify) {
     const projects = await Project.find({ members: member._id, ownerAdmin: member.ownerAdmin })
       .sort({ createdAt: -1 })
       .populate("members", "name email status")
-      .select("name clientEmail status description planning members createdAt");
+      .select("name clientEmail clientCompany status description repositoryUrl category resources planning members createdAt");
 
     return {
       projects,
@@ -65,7 +106,7 @@ async function memberProjectRoutes(fastify) {
     const member = await requireMember(request, fastify);
     const project = await Project.findOne({ _id: request.params.projectId, ownerAdmin: member.ownerAdmin })
       .populate("members", "name email status")
-      .select("name clientEmail status description planning members createdAt");
+      .select("name clientEmail clientCompany status description repositoryUrl category resources planning members createdAt");
 
     if (!project || !hasProjectMember(project, member.id)) {
       throw fastify.httpErrors.notFound("Project not found");
@@ -282,6 +323,31 @@ async function memberProjectRoutes(fastify) {
     return {
       request: createdRequest,
       message: "Request raised for admin review",
+    };
+  });
+
+  fastify.post("/member/projects/:projectId/resources", async (request) => {
+    const member = await requireMember(request, fastify);
+    const project = await Project.findOne({ _id: request.params.projectId, ownerAdmin: member.ownerAdmin })
+      .populate("members", "name email status");
+
+    if (!project || !hasProjectMember(project, member.id)) {
+      throw fastify.httpErrors.notFound("Project not found");
+    }
+
+    const normalizedResources = normalizeResources(request.body?.resources, member);
+
+    if (!normalizedResources.length) {
+      throw fastify.httpErrors.badRequest("At least one resource is required");
+    }
+
+    validateResources(normalizedResources, fastify);
+    project.resources.push(...normalizedResources);
+    await project.save();
+
+    return {
+      project,
+      message: normalizedResources.length === 1 ? "Project resource added" : "Project resources added",
     };
   });
 }

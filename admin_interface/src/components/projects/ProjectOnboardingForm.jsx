@@ -32,8 +32,24 @@ function ProjectOnboardingForm({
     onSubmit({ type: "toggle-member", memberId });
   }
 
+  function handleResourceChange(index, event) {
+    const { name, value } = event.target;
+    onSubmit({ type: "change-resource", index, name, value });
+    setErrors((current) => ({
+      ...current,
+      resources: (current.resources || []).map((resourceError, currentIndex) =>
+        currentIndex === index ? { ...resourceError, [name]: "" } : resourceError,
+      ),
+    }));
+  }
+
   function handleSubmit(event) {
     event.preventDefault();
+
+    const resourceErrors = (form.resources || []).map((resource) => ({
+      name: resource.name.trim() ? "" : "Resource name is required.",
+      url: /^https?:\/\/.+/i.test(resource.url.trim()) ? "" : "Use a valid http or https URL.",
+    }));
 
     const nextErrors = {
       name: form.name.trim() ? "" : "Project name is required.",
@@ -43,10 +59,17 @@ function ProjectOnboardingForm({
           ? ""
           : "Use a valid GitHub repository URL.",
       category: form.category ? "" : "Select a project category.",
+      resources: resourceErrors,
     };
 
     setErrors(nextErrors);
-    if (Object.values(nextErrors).some(Boolean)) {
+    if (
+      nextErrors.name ||
+      nextErrors.description ||
+      nextErrors.repositoryUrl ||
+      nextErrors.category ||
+      resourceErrors.some((resourceError) => resourceError.name || resourceError.url)
+    ) {
       return;
     }
 
@@ -120,6 +143,62 @@ function ProjectOnboardingForm({
                 <option value="completed">Completed</option>
               </select>
             </Field>
+
+            <div className="surface-muted p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">Project resources</p>
+                  <p className="muted-text mt-1 text-sm">Attach named links the team should keep with this workspace.</p>
+                </div>
+                <button className="secondary-button" onClick={() => onSubmit({ type: "add-resource" })} type="button">
+                  Add resource
+                </button>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {(form.resources || []).map((resource, index) => {
+                  const resourceError = errors.resources?.[index] || {};
+
+                  return (
+                    <div className="rounded-xl border border-slate-200 bg-white p-3" key={`resource-${index}`}>
+                      <div className="grid gap-3 md:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)_auto] md:items-start">
+                        <Field error={resourceError.name} label="Name">
+                          <input
+                            className="input-field mt-2"
+                            name="name"
+                            onChange={(event) => handleResourceChange(index, event)}
+                            placeholder="Figma board"
+                            value={resource.name}
+                          />
+                        </Field>
+
+                        <Field error={resourceError.url} label="Link">
+                          <input
+                            className="input-field mt-2"
+                            name="url"
+                            onChange={(event) => handleResourceChange(index, event)}
+                            placeholder="https://..."
+                            value={resource.url}
+                          />
+                        </Field>
+
+                        <div className="pt-0 md:pt-7">
+                          <button className="secondary-button w-full md:w-auto" onClick={() => onSubmit({ type: "remove-resource", index })} type="button">
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {!form.resources?.length ? (
+                  <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-600">
+                    No resource links added yet.
+                  </div>
+                ) : null}
+              </div>
+            </div>
           </div>
 
           <div className="mt-6 flex items-center justify-end">

@@ -1,11 +1,9 @@
+import { getPortalSession, handlePortalAuthFailure } from "../lib/session";
+
 const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:5000").replace(/\/+$/, "");
 
-function getSession() {
-  return JSON.parse(localStorage.getItem("orbitdesk_session") || "{}");
-}
-
 async function request(path, options = {}) {
-  const session = getSession();
+  const session = getPortalSession();
   const response = await fetch(`${API_URL}${path}`, {
     headers: {
       "Content-Type": "application/json",
@@ -16,6 +14,11 @@ async function request(path, options = {}) {
   });
 
   const data = await response.json().catch(() => ({}));
+
+  if (response.status === 401) {
+    handlePortalAuthFailure();
+    throw new Error("Session expired");
+  }
 
   if (!response.ok) {
     throw new Error(data.message || "Request failed");
@@ -51,6 +54,13 @@ export function raiseRequest(projectId, payload) {
   return request(`/member/projects/${projectId}/requests`, {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+}
+
+export function addMemberProjectResources(projectId, resources) {
+  return request(`/member/projects/${projectId}/resources`, {
+    method: "POST",
+    body: JSON.stringify({ resources }),
   });
 }
 

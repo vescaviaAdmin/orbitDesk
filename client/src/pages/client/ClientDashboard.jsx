@@ -1,6 +1,7 @@
 import { cloneElement, useEffect, useId, useMemo, useState } from "react";
 import { createClientIssue, listClientIssues, listClientProjects } from "../../api/client";
 import { useToast } from "../../components/ui/Toast";
+import { clearPortalSession, getPortalSession, isSessionExpiredError, redirectToPortalLogin } from "../../lib/session";
 
 const emptyIssueForm = {
   projectId: "",
@@ -94,7 +95,7 @@ function getProjectProgress(project, issues) {
 
 function ClientDashboard() {
   const toast = useToast();
-  const session = JSON.parse(localStorage.getItem("orbitdesk_session") || "{}");
+  const session = getPortalSession();
   const [projects, setProjects] = useState([]);
   const [issues, setIssues] = useState([]);
   const [issueForm, setIssueForm] = useState(emptyIssueForm);
@@ -103,6 +104,12 @@ function ClientDashboard() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [formErrors, setFormErrors] = useState({});
+
+  useEffect(() => {
+    if (!session.token || session.role !== "client") {
+      redirectToPortalLogin();
+    }
+  }, [session.role, session.token]);
 
   useEffect(() => {
     async function loadClientWorkspace() {
@@ -123,6 +130,9 @@ function ClientDashboard() {
           projectId: current.projectId || initialProjectId,
         }));
       } catch (requestError) {
+        if (isSessionExpiredError(requestError)) {
+          return;
+        }
         toast.error(requestError.message);
       } finally {
         setLoading(false);
@@ -131,6 +141,11 @@ function ClientDashboard() {
 
     loadClientWorkspace();
   }, []);
+
+  function logoutClient() {
+    clearPortalSession();
+    redirectToPortalLogin();
+  }
 
   const projectCards = useMemo(
     () =>
@@ -222,6 +237,9 @@ function ClientDashboard() {
       toast.success(data.message);
       setActiveView("issues");
     } catch (requestError) {
+      if (isSessionExpiredError(requestError)) {
+        return;
+      }
       toast.error(requestError.message);
     } finally {
       setSubmitting(false);
@@ -268,6 +286,9 @@ function ClientDashboard() {
                 <p className="muted-text truncate text-xs">{session.user?.email || "Stakeholder account"}</p>
               </div>
             </div>
+            <button className="secondary-button mt-3 w-full" onClick={logoutClient} type="button">
+              Logout
+            </button>
           </div>
         </aside>
 
