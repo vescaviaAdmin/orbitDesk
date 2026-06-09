@@ -15,6 +15,7 @@ import {
   listProjects,
   listRequests,
   updateProjectMembers,
+  updateProjectTicket,
   updateSprintStatus,
 } from "../api/admin";
 import AppShell, { PageHeader, Sidebar, Topbar } from "../components/ui/AppShell";
@@ -730,7 +731,7 @@ function AdminDashboard() {
         description: ticketPayload.description,
         assignedTo: ticketPayload.assignedTo,
         deadline: ticketPayload.deadline,
-        status: "open",
+        status: ticketPayload.status || "open",
         priority: ticketPayload.priority,
         type: ticketPayload.type,
         urls,
@@ -747,6 +748,43 @@ function AdminDashboard() {
       setStatus(data.message);
       if (onSuccess) {
         onSuccess();
+      }
+    } catch (requestError) {
+      if (isSessionExpiredError(requestError)) {
+        return;
+      }
+      setError(requestError.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function editAdminProjectTicket(ticketId, ticketPayload, onSuccess) {
+    setLoading(true);
+    setStatus("");
+    setError("");
+
+    try {
+      const urls = ticketPayload.urlsText
+        .split("\n")
+        .map((url) => url.trim())
+        .filter(Boolean);
+
+      const data = await updateProjectTicket(ticketId, {
+        title: ticketPayload.title,
+        description: ticketPayload.description,
+        assignedTo: ticketPayload.assignedTo,
+        deadline: ticketPayload.deadline,
+        status: ticketPayload.status,
+        priority: ticketPayload.priority,
+        type: ticketPayload.type,
+        urls,
+      });
+
+      setProjectTickets((current) => current.map((ticket) => (ticket._id === data.ticket._id ? data.ticket : ticket)));
+      setStatus(data.message);
+      if (onSuccess) {
+        onSuccess(data.ticket);
       }
     } catch (requestError) {
       if (isSessionExpiredError(requestError)) {
@@ -1002,6 +1040,7 @@ function AdminDashboard() {
               memberSearch={memberSearch}
               onBack={() => routeTo("/projects")}
               onCreateTicket={createAdminProjectTicket}
+              onEditTicket={editAdminProjectTicket}
               onSaveMembers={saveProjectMembers}
               onSearchMembers={setMemberSearch}
               onToggleMember={toggleProjectMember}
@@ -1231,7 +1270,7 @@ function BoardPage({ issues, projects, requests }) {
               if (column.key === "in_review") {
                 return ["in_review", "review"].includes((task.status || "").toLowerCase());
               }
-              return ["done", "completed", "resolved"].includes((task.status || "").toLowerCase());
+              return ["done", "completed"].includes((task.status || "").toLowerCase());
             });
 
             return (
@@ -1851,7 +1890,7 @@ function ProjectDetailPage({
                     if (column.key === "in_review") {
                       return ["in_review", "review"].includes(normalized);
                     }
-                    return ["done", "resolved", "completed"].includes(normalized);
+                    return ["done", "completed"].includes(normalized);
                   });
 
                   return (

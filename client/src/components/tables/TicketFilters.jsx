@@ -55,7 +55,8 @@ export default function TicketFilters({
           <SelectItem value="all">All statuses</SelectItem>
           <SelectItem value="open">Open</SelectItem>
           <SelectItem value="in_progress">In progress</SelectItem>
-          <SelectItem value="resolved">Done</SelectItem>
+          <SelectItem value="done">Done</SelectItem>
+          <SelectItem value="cancel">Cancel</SelectItem>
         </SelectContent>
       </Select>
 

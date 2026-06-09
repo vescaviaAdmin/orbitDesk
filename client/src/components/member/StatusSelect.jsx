@@ -13,7 +13,8 @@ export default function StatusSelect({ className = "", disabled, id, onChange, s
     >
       <option value="open">Open</option>
       <option value="in_progress">In progress</option>
-      <option value="resolved">Done</option>
+      <option value="done">Done</option>
+      <option value="cancel">Cancel</option>
     </select>
   );
 }

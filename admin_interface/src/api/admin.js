@@ -132,6 +132,13 @@ export function addProjectTicket(projectId, ticket) {
   });
 }
 
+export function updateProjectTicket(ticketId, ticket) {
+  return request(`/admin/tickets/${ticketId}`, {
+    method: "PUT",
+    body: JSON.stringify(ticket),
+  });
+}
+
 export function addProjectResources(projectId, resources) {
   return request(`/admin/projects/${projectId}/resources`, {
     method: "POST",

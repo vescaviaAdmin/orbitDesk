@@ -35,7 +35,7 @@ export function getProjectTone(status) {
 export function getStatusTone(status) {
   const normalized = (status || "open").toLowerCase();
 
-  if (["resolved", "done", "completed", "closed"].includes(normalized)) {
+  if (["done", "completed", "closed"].includes(normalized)) {
     return "completed";
   }
 
@@ -45,6 +45,10 @@ export function getStatusTone(status) {
 
   if (["paused", "blocked", "open", "pending"].includes(normalized)) {
     return "pending";
+  }
+
+  if (["cancel", "cancelled", "canceled"].includes(normalized)) {
+    return "neutral";
   }
 
   return "neutral";
