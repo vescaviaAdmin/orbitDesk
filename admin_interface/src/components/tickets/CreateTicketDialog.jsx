@@ -2,15 +2,33 @@ import { useEffect, useState } from "react";
 
 const initialErrors = {};
 
-function CreateTicketDialog({ loading, members, onClose, onSubmit, open, projectName }) {
+function CreateTicketDialog({
+  initialValues = null,
+  loading,
+  members,
+  onClose,
+  onSubmit,
+  open,
+  projectName,
+  showStatusField = false,
+  submitLabel = "Create ticket",
+  titleLabel = "Create Ticket",
+}) {
+  function buildFormState() {
+    return {
+      title: initialValues?.title || "",
+      description: initialValues?.description || "",
+      priority: initialValues?.priority || "medium",
+      type: initialValues?.type || "task",
+      status: initialValues?.status || "open",
+      assignedTo: initialValues?.assignedTo || members?.[0]?._id || "",
+      deadline: initialValues?.deadline ? String(initialValues.deadline).split("T")[0] : "",
+      urlsText: initialValues?.urlsText || "",
+    };
+  }
+
   const [form, setForm] = useState({
-    title: "",
-    description: "",
-    priority: "medium",
-    type: "task",
-    assignedTo: members?.[0]?._id || "",
-    deadline: "",
-    urlsText: "",
+    ...buildFormState(),
   });
   const [errors, setErrors] = useState(initialErrors);
 
@@ -19,17 +37,9 @@ function CreateTicketDialog({ loading, members, onClose, onSubmit, open, project
       return;
     }
 
-    setForm({
-      title: "",
-      description: "",
-      priority: "medium",
-      type: "task",
-      assignedTo: members?.[0]?._id || "",
-      deadline: "",
-      urlsText: "",
-    });
+    setForm(buildFormState());
     setErrors(initialErrors);
-  }, [members, open]);
+  }, [initialValues, members, open]);
 
   if (!open) {
     return null;
@@ -68,7 +78,7 @@ function CreateTicketDialog({ loading, members, onClose, onSubmit, open, project
       <div className="w-full max-w-2xl rounded-xl border border-blue-100 bg-white shadow-2xl">
         <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-6">
           <div>
-            <p className="eyebrow">Create Ticket</p>
+            <p className="eyebrow">{titleLabel}</p>
             <h3 className="mt-3 text-2xl font-semibold tracking-[-0.03em] text-slate-900">{projectName}</h3>
             <p className="muted-text mt-2 text-sm">Raise a ticket with clear ownership, priority, and context.</p>
           </div>
@@ -87,6 +97,16 @@ function CreateTicketDialog({ loading, members, onClose, onSubmit, open, project
           </Field>
 
           <div className="grid gap-4 sm:grid-cols-2">
+            {showStatusField ? (
+              <Field label="Status">
+                <select className="input-field mt-2" name="status" onChange={handleChange} value={form.status}>
+                  <option value="open">Open</option>
+                  <option value="in_progress">In Progress</option>
+                  <option value="done">Done</option>
+                  <option value="cancel">Cancel</option>
+                </select>
+              </Field>
+            ) : null}
             <Field label="Priority">
               <select className="input-field mt-2" name="priority" onChange={handleChange} value={form.priority}>
                 <option value="low">Low</option>
@@ -95,7 +115,9 @@ function CreateTicketDialog({ loading, members, onClose, onSubmit, open, project
                 <option value="critical">Critical</option>
               </select>
             </Field>
+          </div>
 
+          <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Type">
               <select className="input-field mt-2" name="type" onChange={handleChange} value={form.type}>
                 <option value="bug">Bug</option>
@@ -132,7 +154,7 @@ function CreateTicketDialog({ loading, members, onClose, onSubmit, open, project
               Cancel
             </button>
             <button className="primary-button min-w-32" disabled={loading} type="submit">
-              {loading ? "Creating..." : "Create ticket"}
+              {loading ? "Saving..." : submitLabel}
             </button>
           </div>
         </form>

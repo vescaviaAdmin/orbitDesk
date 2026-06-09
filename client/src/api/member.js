@@ -70,3 +70,10 @@ export function updateMemberTicketStatus(ticketId, status) {
     body: JSON.stringify({ status }),
   });
 }
+
+export function updateMemberTicket(ticketId, ticket) {
+  return request(`/member/tickets/${ticketId}`, {
+    method: "PUT",
+    body: JSON.stringify(ticket),
+  });
+}

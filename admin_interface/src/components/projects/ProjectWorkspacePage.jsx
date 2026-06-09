@@ -18,6 +18,7 @@ function ProjectWorkspacePage({
   onAddResources,
   onBack,
   onCreateTicket,
+  onEditTicket,
   onSaveMembers,
   onSearchMembers,
   onToggleMember,
@@ -41,7 +42,7 @@ function ProjectWorkspacePage({
       total: tickets.length,
       open: tickets.filter((ticket) => ticket.status === "open").length,
       progress: tickets.filter((ticket) => ticket.status === "in_progress").length,
-      resolved: tickets.filter((ticket) => ticket.status === "resolved").length,
+      done: tickets.filter((ticket) => ticket.status === "done").length,
     }),
     [tickets],
   );
@@ -152,7 +153,7 @@ function ProjectWorkspacePage({
                 <InfoCard label="Total tickets" value={summary.total} />
                 <InfoCard label="Open" value={summary.open} />
                 <InfoCard label="In progress" value={summary.progress} />
-                <InfoCard label="Resolved" value={summary.resolved} />
+                <InfoCard label="Done" value={summary.done} />
               </div>
             </div>
 
@@ -362,7 +363,16 @@ function ProjectWorkspacePage({
         open={isCreateOpen}
         projectName={project.name}
       />
-      <TicketDetailsDrawer onClose={() => setSelectedTicket(null)} ticket={selectedTicket} />
+      <TicketDetailsDrawer
+        loading={loading}
+        members={project.members || []}
+        onClose={() => setSelectedTicket(null)}
+        onUpdateTicket={(ticketId, payload, onSuccess) => onEditTicket(ticketId, payload, (updatedTicket) => {
+          setSelectedTicket(updatedTicket);
+          onSuccess?.(updatedTicket);
+        })}
+        ticket={selectedTicket}
+      />
     </section>
   );
 }

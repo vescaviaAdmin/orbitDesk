@@ -7,6 +7,7 @@ import {
   listMemberTickets,
   raiseRequest,
   raiseTicket,
+  updateMemberTicket,
   updateMemberTicketStatus,
 } from "../../api/member";
 import StatusBadge from "../../components/member/StatusBadge";
@@ -140,6 +141,7 @@ function MemberDashboard() {
   const [requestForm, setRequestForm] = useState(emptyRequest);
   const [memberSearch, setMemberSearch] = useState("");
   const [shareTicket, setShareTicket] = useState(null);
+  const [isEditingTicket, setIsEditingTicket] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
@@ -383,6 +385,18 @@ function MemberDashboard() {
     setShareTicket(null);
   }
 
+  function openEditTicket() {
+    if (!selectedTicket) {
+      return;
+    }
+
+    setIsEditingTicket(true);
+  }
+
+  function closeEditTicket() {
+    setIsEditingTicket(false);
+  }
+
   async function handleCopyTicketLink() {
     if (!shareTicket?.url) {
       return;
@@ -496,6 +510,43 @@ function MemberDashboard() {
       const data = await updateMemberTicketStatus(ticketId, nextStatus);
       applyTicketUpdate(data.ticket);
       toast.success(data.message);
+    } catch (requestError) {
+      if (isSessionExpiredError(requestError)) {
+        return;
+      }
+      toast.error(requestError.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleEditTicketSubmit(payload) {
+    if (!selectedTicket?._id) {
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const urls = payload.urlsText
+        .split("\n")
+        .map((url) => url.trim())
+        .filter(Boolean);
+
+      const data = await updateMemberTicket(selectedTicket._id, {
+        title: payload.title,
+        description: payload.description,
+        assignedTo: payload.assignedTo,
+        deadline: payload.deadline,
+        status: payload.status,
+        priority: payload.priority,
+        type: payload.type,
+        urls,
+      });
+
+      applyTicketUpdate(data.ticket);
+      toast.success(data.message);
+      closeEditTicket();
     } catch (requestError) {
       if (isSessionExpiredError(requestError)) {
         return;
@@ -748,9 +799,14 @@ function MemberDashboard() {
                   </>
                 ) : null}
                 {showTicketHeader && selectedTicket ? (
-                  <IconButton label="Share ticket" onClick={() => openShareTicket(selectedTicket)}>
-                    <IconShare />
-                  </IconButton>
+                  <>
+                    <IconButton label="Share ticket" onClick={() => openShareTicket(selectedTicket)}>
+                      <IconShare />
+                    </IconButton>
+                    <IconButton label="Edit ticket" onClick={openEditTicket}>
+                      <IconEdit />
+                    </IconButton>
+                  </>
                 ) : null}
                 <button aria-label="Refresh workspace" className="icon-button" onClick={loadHomeData} title="Refresh workspace" type="button">
                   <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24">
@@ -865,6 +921,15 @@ function MemberDashboard() {
             routeTo(ticketPath);
           }}
           ticket={shareTicket}
+        />
+      ) : null}
+      {isEditingTicket && selectedTicket ? (
+        <EditTicketModal
+          loading={loading}
+          members={selectedTicket.project?.members || []}
+          onClose={closeEditTicket}
+          onSubmit={handleEditTicketSubmit}
+          ticket={selectedTicket}
         />
       ) : null}
     </main>
@@ -1310,7 +1375,8 @@ function CreateTicketPage({ assignedMember, loading, memberSearch, onBack, onMem
               <select className="input-field mt-2" name="status" onChange={onTicketChange} value={ticketForm.status}>
                 <option value="open">Open</option>
                 <option value="in_progress">In Progress</option>
-                <option value="resolved">Done</option>
+                <option value="done">Done</option>
+                <option value="cancel">Cancel</option>
               </select>
             </Field>
 
@@ -1448,6 +1514,129 @@ function ShareTicketModal({ onClose, onCopy, onOpen, ticket }) {
   );
 }
 
+function EditTicketModal({ loading, members, onClose, onSubmit, ticket }) {
+  const [form, setForm] = useState(() => buildEditTicketForm(ticket, members));
+
+  useEffect(() => {
+    setForm(buildEditTicketForm(ticket, members));
+  }, [members, ticket]);
+
+  function handleChange(event) {
+    const { name, value } = event.target;
+    setForm((current) => ({ ...current, [name]: value }));
+  }
+
+  function handleSubmit(event) {
+    event.preventDefault();
+    onSubmit({
+      ...form,
+      title: form.title.trim(),
+      description: form.description.trim(),
+      urlsText: form.urlsText.trim(),
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 px-4">
+      <div className="surface-card w-full max-w-2xl p-6">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="section-title">Edit {ticket.title}</h2>
+            <p className="muted-text mt-3 text-sm leading-6">Update ownership, timing, status, or details without leaving the ticket view.</p>
+          </div>
+          <button aria-label="Close edit ticket dialog" className="icon-button" onClick={onClose} type="button">
+            <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24">
+              <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+            </svg>
+          </button>
+        </div>
+
+        <form className="mt-5 grid gap-4" onSubmit={handleSubmit}>
+          <Field label="Title">
+            <input className="input-field mt-2" name="title" onChange={handleChange} required value={form.title} />
+          </Field>
+
+          <Field label="Description">
+            <textarea className="input-field mt-2 min-h-28" name="description" onChange={handleChange} value={form.description} />
+          </Field>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Status">
+              <select className="input-field mt-2" name="status" onChange={handleChange} value={form.status}>
+                <option value="open">Open</option>
+                <option value="in_progress">In Progress</option>
+                <option value="done">Done</option>
+                <option value="cancel">Cancel</option>
+              </select>
+            </Field>
+
+            <Field label="Due date">
+              <input className="input-field mt-2" name="deadline" onChange={handleChange} required type="date" value={form.deadline} />
+            </Field>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Priority">
+              <select className="input-field mt-2" name="priority" onChange={handleChange} value={form.priority}>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="critical">Critical</option>
+              </select>
+            </Field>
+
+            <Field label="Type">
+              <select className="input-field mt-2" name="type" onChange={handleChange} value={form.type}>
+                <option value="bug">Bug</option>
+                <option value="feature">Feature</option>
+                <option value="task">Task</option>
+                <option value="improvement">Improvement</option>
+              </select>
+            </Field>
+          </div>
+
+          <Field label="Assignee">
+            <select className="input-field mt-2" name="assignedTo" onChange={handleChange} value={form.assignedTo}>
+              <option value="">Select member</option>
+              {members.map((member) => (
+                <option key={member._id} value={member._id}>
+                  {member.name} ({member.email})
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="Links">
+            <textarea className="input-field mt-2 min-h-24" name="urlsText" onChange={handleChange} placeholder="One link per line" value={form.urlsText} />
+          </Field>
+
+          <div className="flex flex-wrap justify-end gap-3">
+            <button className="secondary-button" onClick={onClose} type="button">
+              Close
+            </button>
+            <button className="primary-button" disabled={loading} type="submit">
+              {loading ? "Saving..." : "Save changes"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function buildEditTicketForm(ticket, members) {
+  return {
+    title: ticket?.title || "",
+    description: ticket?.description || "",
+    assignedTo: ticket?.assignedTo?._id || members?.[0]?._id || "",
+    deadline: ticket?.deadline ? String(ticket.deadline).split("T")[0] : "",
+    status: ticket?.status || "open",
+    priority: ticket?.priority || "medium",
+    type: ticket?.type || "task",
+    urlsText: (ticket?.urls || []).join("\n"),
+  };
+}
+
 function Field({ children, label }) {
   const fieldId = useId();
 
@@ -1531,6 +1720,15 @@ function IconShare() {
       <path d="M16 8l-8 4 8 4V8z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.8" />
       <path d="M6 6v12" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
       <path d="M18 10v4" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function IconEdit() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 24 24">
+      <path d="M4 20h4l10-10-4-4L4 16v4z" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+      <path d="M13 7l4 4" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
     </svg>
   );
 }

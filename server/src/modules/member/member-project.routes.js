@@ -6,6 +6,10 @@ import Request from "../../models/Request.js";
 import Ticket from "../../models/Ticket.js";
 import { sendTicketAssignedMail } from "../mail/mail.service.js";
 
+const TICKET_STATUSES = ["open", "in_progress", "done", "cancel"];
+const TICKET_PRIORITIES = ["low", "medium", "high", "critical"];
+const TICKET_TYPES = ["bug", "feature", "task", "improvement"];
+
 async function requireMember(request, fastify) {
   await fastify.authenticate(request);
 
@@ -149,7 +153,14 @@ async function memberProjectRoutes(fastify) {
   fastify.get("/member/tickets/:ticketId", async (request) => {
     const member = await requireMember(request, fastify);
     const ticket = await Ticket.findOne({ _id: request.params.ticketId, ownerAdmin: member.ownerAdmin })
-      .populate("project", "name clientEmail status description members")
+      .populate({
+        path: "project",
+        select: "name clientEmail status description members",
+        populate: {
+          path: "members",
+          select: "name email status",
+        },
+      })
       .populate("createdBy", "name email")
       .populate("assignedTo", "name email");
 
@@ -191,15 +202,15 @@ async function memberProjectRoutes(fastify) {
       throw fastify.httpErrors.badRequest("assignedTo must be a valid member id");
     }
 
-    if (!["open", "in_progress", "resolved"].includes(status)) {
-      throw fastify.httpErrors.badRequest("status must be open, in_progress, or resolved");
+    if (!TICKET_STATUSES.includes(status)) {
+      throw fastify.httpErrors.badRequest("status must be open, in_progress, done, or cancel");
     }
 
-    if (!["low", "medium", "high", "critical"].includes(priority)) {
+    if (!TICKET_PRIORITIES.includes(priority)) {
       throw fastify.httpErrors.badRequest("priority must be low, medium, high, or critical");
     }
 
-    if (!["bug", "feature", "task", "improvement"].includes(type)) {
+    if (!TICKET_TYPES.includes(type)) {
       throw fastify.httpErrors.badRequest("type must be bug, feature, task, or improvement");
     }
 
@@ -268,8 +279,8 @@ async function memberProjectRoutes(fastify) {
     const member = await requireMember(request, fastify);
     const { status } = request.body || {};
 
-    if (!["open", "in_progress", "resolved"].includes(status)) {
-      throw fastify.httpErrors.badRequest("status must be open, in_progress, or resolved");
+    if (!TICKET_STATUSES.includes(status)) {
+      throw fastify.httpErrors.badRequest("status must be open, in_progress, done, or cancel");
     }
 
     const ticket = await Ticket.findOne({ _id: request.params.ticketId, ownerAdmin: member.ownerAdmin })
@@ -283,11 +294,116 @@ async function memberProjectRoutes(fastify) {
 
     ticket.status = status;
     await ticket.save();
-    await ticket.populate("project", "name clientEmail status description members");
+    await ticket.populate({
+      path: "project",
+      select: "name clientEmail status description members",
+      populate: {
+        path: "members",
+        select: "name email status",
+      },
+    });
 
     return {
       ticket,
       message: "Ticket status updated",
+    };
+  });
+
+  fastify.put("/member/tickets/:ticketId", async (request) => {
+    const member = await requireMember(request, fastify);
+    const {
+      title,
+      description = "",
+      assignedTo,
+      deadline,
+      status,
+      priority,
+      type,
+      urls = [],
+    } = request.body || {};
+    const normalizedTitle = String(title || "").trim();
+    const normalizedDescription = String(description || "").trim();
+    const parsedDeadline = new Date(deadline);
+
+    if (!normalizedTitle || !assignedTo || !deadline) {
+      throw fastify.httpErrors.badRequest("title, assignedTo, and deadline are required");
+    }
+
+    if (Number.isNaN(parsedDeadline.getTime())) {
+      throw fastify.httpErrors.badRequest("deadline must be a valid date");
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(assignedTo)) {
+      throw fastify.httpErrors.badRequest("assignedTo must be a valid member id");
+    }
+
+    if (!TICKET_STATUSES.includes(status)) {
+      throw fastify.httpErrors.badRequest("status must be open, in_progress, done, or cancel");
+    }
+
+    if (!TICKET_PRIORITIES.includes(priority)) {
+      throw fastify.httpErrors.badRequest("priority must be low, medium, high, or critical");
+    }
+
+    if (!TICKET_TYPES.includes(type)) {
+      throw fastify.httpErrors.badRequest("type must be bug, feature, task, or improvement");
+    }
+
+    const ticket = await Ticket.findOne({ _id: request.params.ticketId, ownerAdmin: member.ownerAdmin }).populate("project", "name members");
+
+    if (!ticket || !hasProjectMember(ticket.project, member.id)) {
+      throw fastify.httpErrors.notFound("Ticket not found");
+    }
+
+    if (!hasProjectMember(ticket.project, assignedTo)) {
+      throw fastify.httpErrors.badRequest("Ticket can only be assigned to a member in this project");
+    }
+
+    const normalizedUrls = Array.isArray(urls) ? urls.filter(Boolean) : [];
+
+    ticket.title = normalizedTitle;
+    ticket.description = normalizedDescription;
+    ticket.assignedTo = assignedTo;
+    ticket.deadline = parsedDeadline;
+    ticket.status = status;
+    ticket.priority = priority;
+    ticket.type = type;
+    ticket.urls = normalizedUrls;
+    await ticket.save();
+
+    await ticket.populate("createdBy", "name email");
+    await ticket.populate("createdByAdmin", "name email");
+    await ticket.populate("assignedTo", "name email");
+    await ticket.populate({
+      path: "project",
+      select: "name clientEmail status description members",
+      populate: {
+        path: "members",
+        select: "name email status",
+      },
+    });
+
+    let message = "Ticket updated successfully";
+
+    try {
+      await sendTicketAssignedMail(fastify, ticket.assignedTo, ticket, ticket.project);
+      message = "Ticket updated and assignee notified by email";
+    } catch (mailError) {
+      fastify.log.warn(
+        {
+          err: mailError,
+          memberId: ticket.assignedTo?._id,
+          projectId: ticket.project?._id,
+          ticketId: ticket._id,
+        },
+        "Ticket was updated by member but assignment email could not be sent",
+      );
+      message = "Ticket updated successfully, but the email notification could not be sent";
+    }
+
+    return {
+      ticket,
+      message,
     };
   });
 
