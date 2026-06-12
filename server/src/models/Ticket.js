@@ -74,7 +74,7 @@ const ticketSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["open", "in_progress", "resolved"],
+      enum: ["open", "in_progress", "done", "cancel"],
       default: "open",
     },
     ownerAdmin: {
@@ -87,5 +87,10 @@ const ticketSchema = new mongoose.Schema(
     timestamps: true,
   },
 );
+
+ticketSchema.index({ ownerAdmin: 1, createdAt: -1 });
+ticketSchema.index({ ownerAdmin: 1, project: 1, createdAt: -1 });
+ticketSchema.index({ ownerAdmin: 1, assignedTo: 1, createdAt: -1 });
+ticketSchema.index({ ownerAdmin: 1, status: 1, createdAt: -1 });
 
 export default mongoose.model("Ticket", ticketSchema);

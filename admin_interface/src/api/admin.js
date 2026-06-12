@@ -77,6 +77,10 @@ export function listMembers() {
   return request("/admin/members");
 }
 
+export function getMemberDetail(memberId) {
+  return request(`/admin/members/${memberId}`);
+}
+
 export function addClient(client) {
   const formData = new FormData();
   formData.append("name", client.name);
@@ -110,6 +114,13 @@ export function listRequests() {
   return request("/admin/requests");
 }
 
+export function updateAdminRequestStatus(requestId, status) {
+  return request(`/admin/requests/${requestId}/status`, {
+    method: "PUT",
+    body: JSON.stringify({ status }),
+  });
+}
+
 export function listIssues() {
   return request("/admin/issues");
 }
@@ -128,6 +139,13 @@ export function updateProjectMembers(projectId, memberIds) {
 export function addProjectTicket(projectId, ticket) {
   return request(`/admin/projects/${projectId}/tickets`, {
     method: "POST",
+    body: JSON.stringify(ticket),
+  });
+}
+
+export function updateProjectTicket(ticketId, ticket) {
+  return request(`/admin/tickets/${ticketId}`, {
+    method: "PUT",
     body: JSON.stringify(ticket),
   });
 }

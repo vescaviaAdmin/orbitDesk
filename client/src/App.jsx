@@ -25,6 +25,7 @@ function App() {
     path.startsWith("/member/tickets") ||
     path.startsWith("/member/requests") ||
     path.startsWith("/member/documents") ||
+    path.startsWith("/member/skills") ||
     path === "/member"
   ) {
     return <MemberDashboard />;

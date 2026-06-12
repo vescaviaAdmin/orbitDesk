@@ -38,4 +38,8 @@ const issueSchema = new mongoose.Schema(
   },
 );
 
+issueSchema.index({ ownerAdmin: 1, createdAt: -1 });
+issueSchema.index({ ownerAdmin: 1, project: 1, createdAt: -1 });
+issueSchema.index({ ownerAdmin: 1, client: 1, createdAt: -1 });
+
 export default mongoose.model("Issue", issueSchema);

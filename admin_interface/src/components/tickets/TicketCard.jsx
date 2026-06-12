@@ -24,7 +24,7 @@ function TicketCard({ onClick, ticket }) {
 
         <div className="flex items-end justify-between gap-3">
           <div className="inline-flex min-w-0 items-center gap-3 rounded-full border border-slate-200 bg-slate-50 px-3 py-2">
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">
+            <span className="avatar-badge h-8 w-8 text-xs font-semibold">
               {(ticket.assignedTo?.name || ticket.assignedTo?.email || "U").slice(0, 1).toUpperCase()}
             </span>
             <div className="min-w-0">

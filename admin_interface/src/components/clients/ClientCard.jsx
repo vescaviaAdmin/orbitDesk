@@ -35,7 +35,7 @@ function ClientCard({ client }) {
 
 function InfoTile({ label, value }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+    <div className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--surface-muted)] p-4">
       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</p>
       <p className="mt-2 text-sm font-medium text-slate-900">{value}</p>
     </div>

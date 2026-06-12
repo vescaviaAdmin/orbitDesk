@@ -61,7 +61,7 @@ function ClientOnboardingForm({ clients, form, loading, onBack, onChange, onSubm
             </div>
 
             <Field error={errors.agreement} label="Client agreement">
-              <label className="mt-2 flex cursor-pointer items-center justify-between rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 transition hover:border-violet-300 hover:bg-violet-50/40">
+              <label className="mt-2 flex cursor-pointer items-center justify-between rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 transition hover:border-[color:var(--primary)] hover:bg-[color:var(--primary-softer)]">
                 <div>
                   <p className="text-sm font-semibold text-slate-900">{form.agreement?.name || "Upload signed agreement"}</p>
                   <p className="mt-1 text-sm text-slate-500">PDF or supporting file required for client onboarding.</p>

@@ -31,6 +31,17 @@ export function listMemberProjects() {
   return request("/member/projects");
 }
 
+export function getMemberSkills() {
+  return request("/member/skills");
+}
+
+export function updateMemberSkills(payload) {
+  return request("/member/skills", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function getMemberProject(projectId) {
   return request(`/member/projects/${projectId}`);
 }
@@ -68,5 +79,12 @@ export function updateMemberTicketStatus(ticketId, status) {
   return request(`/member/tickets/${ticketId}/status`, {
     method: "PUT",
     body: JSON.stringify({ status }),
+  });
+}
+
+export function updateMemberTicket(ticketId, ticket) {
+  return request(`/member/tickets/${ticketId}`, {
+    method: "PUT",
+    body: JSON.stringify(ticket),
   });
 }
