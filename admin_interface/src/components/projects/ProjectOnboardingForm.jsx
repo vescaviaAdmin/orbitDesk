@@ -217,7 +217,16 @@ function ProjectOnboardingForm({
 
           <div className="mt-5 space-y-3">
             {filteredMembers.map((member) => (
-              <button className={`flex w-full items-center justify-between rounded-lg border px-4 py-3 text-left transition ${form.memberIds.includes(member._id) ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-slate-50 hover:border-blue-200"}`} key={member._id} onClick={() => handleMemberToggle(member._id)} type="button">
+              <button
+                className={`flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left transition ${
+                  form.memberIds.includes(member._id)
+                    ? "border-[color:var(--primary)] bg-[color:var(--primary-softer)]"
+                    : "border-slate-200 bg-slate-50 hover:border-[color:var(--primary)] hover:bg-[color:var(--primary-softer)]"
+                }`}
+                key={member._id}
+                onClick={() => handleMemberToggle(member._id)}
+                type="button"
+              >
                 <div>
                   <p className="font-semibold text-slate-900">{member.name}</p>
                   <p className="muted-text text-sm">{member.email}</p>

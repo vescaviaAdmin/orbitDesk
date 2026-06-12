@@ -1,12 +1,14 @@
 import { cloneElement, useEffect, useId, useMemo, useState } from "react";
 import {
   addMemberProjectResources,
+  getMemberSkills,
   getMemberProject,
   getMemberTicket,
   listMemberProjects,
   listMemberTickets,
   raiseRequest,
   raiseTicket,
+  updateMemberSkills,
   updateMemberTicket,
   updateMemberTicketStatus,
 } from "../../api/member";
@@ -55,6 +57,7 @@ const NAV_ITEMS = [
   ["projects", "Projects", "/member/projects"],
   ["requests", "Requests", "/member/requests"],
   ["documents", "Documents", "/member/documents"],
+  ["skills", "Skills", "/member/skills"],
 ];
 
 function buildTicketPath(ticketId) {
@@ -125,6 +128,22 @@ function getInitials(value) {
     .join("") || "OD";
 }
 
+function createEmptySkill() {
+  return {
+    name: "",
+    rating: 3,
+  };
+}
+
+function createEmptyCourse() {
+  return {
+    title: "",
+    provider: "",
+    url: "",
+    note: "",
+  };
+}
+
 function MemberDashboard() {
   const toast = useToast();
   const session = getPortalSession();
@@ -137,18 +156,24 @@ function MemberDashboard() {
   const [projectClient, setProjectClient] = useState(null);
   const [projectRequests, setProjectRequests] = useState([]);
   const [projectDirectory, setProjectDirectory] = useState([]);
+  const [memberProfile, setMemberProfile] = useState(null);
   const [ticketForm, setTicketForm] = useState(emptyTicket);
   const [requestForm, setRequestForm] = useState(emptyRequest);
+  const [skillsDraft, setSkillsDraft] = useState([]);
+  const [coursesDraft, setCoursesDraft] = useState([]);
   const [memberSearch, setMemberSearch] = useState("");
   const [shareTicket, setShareTicket] = useState(null);
   const [isEditingTicket, setIsEditingTicket] = useState(false);
+  const [isViewingAllSkills, setIsViewingAllSkills] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [savingSkills, setSavingSkills] = useState(false);
 
   const isDashboardPath = path === "/member" || path === "/member/dashboard";
   const isProjectsPath = path === "/member/projects";
   const isRequestsPath = path === "/member/requests";
   const isDocumentsPath = path === "/member/documents";
+  const isSkillsPath = path === "/member/skills";
   const projectTicketsPathId = path.match(/^\/member\/projects\/([^/]+)\/tickets$/)?.[1] || "";
   const projectIdFromPath = path.match(/^\/member\/projects\/([^/]+)$/)?.[1] || "";
   const ticketIdFromPath = path.match(/^\/member\/tickets\/([^/]+)$/)?.[1] || "";
@@ -252,6 +277,20 @@ function MemberDashboard() {
     }
   }
 
+  async function loadSkillsData() {
+    try {
+      const data = await getMemberSkills();
+      setMemberProfile(data.member || null);
+      setSkillsDraft(data.member?.skills || []);
+      setCoursesDraft(data.member?.recommendedCourses || []);
+    } catch (requestError) {
+      if (isSessionExpiredError(requestError)) {
+        return;
+      }
+      toast.error(requestError.message);
+    }
+  }
+
   async function loadProject(projectId) {
     setLoading(true);
 
@@ -320,6 +359,7 @@ function MemberDashboard() {
 
   useEffect(() => {
     loadHomeData();
+    loadSkillsData();
   }, []);
 
   useEffect(() => {
@@ -582,6 +622,77 @@ function MemberDashboard() {
     }
   }
 
+  function addSkillRow() {
+    setSkillsDraft((current) => [...current, createEmptySkill()]);
+  }
+
+  function updateSkillRow(index, field, value) {
+    setSkillsDraft((current) =>
+      current.map((skill, currentIndex) =>
+        currentIndex === index
+          ? {
+              ...skill,
+              [field]: field === "rating" ? Number(value) : value,
+            }
+          : skill,
+      ),
+    );
+  }
+
+  function removeSkillRow(index) {
+    setSkillsDraft((current) => current.filter((_, currentIndex) => currentIndex !== index));
+  }
+
+  function addCourseRow() {
+    setCoursesDraft((current) => [...current, createEmptyCourse()]);
+  }
+
+  function updateCourseRow(index, field, value) {
+    setCoursesDraft((current) =>
+      current.map((course, currentIndex) => (currentIndex === index ? { ...course, [field]: value } : course)),
+    );
+  }
+
+  function removeCourseRow(index) {
+    setCoursesDraft((current) => current.filter((_, currentIndex) => currentIndex !== index));
+  }
+
+  async function handleSkillsSave() {
+    setSavingSkills(true);
+
+    try {
+      const payload = {
+        skills: skillsDraft
+          .map((skill) => ({
+            name: skill.name.trim(),
+            rating: Number(skill.rating) || 1,
+          }))
+          .filter((skill) => skill.name),
+        recommendedCourses: coursesDraft
+          .map((course) => ({
+            title: course.title.trim(),
+            provider: course.provider.trim(),
+            url: course.url.trim(),
+            note: course.note.trim(),
+          }))
+          .filter((course) => course.title || course.provider || course.url || course.note),
+      };
+
+      const data = await updateMemberSkills(payload);
+      setMemberProfile(data.member || null);
+      setSkillsDraft(data.member?.skills || []);
+      setCoursesDraft(data.member?.recommendedCourses || []);
+      toast.success(data.message || "Skills updated");
+    } catch (requestError) {
+      if (isSessionExpiredError(requestError)) {
+        return;
+      }
+      toast.error(requestError.message);
+    } finally {
+      setSavingSkills(false);
+    }
+  }
+
   const projectStatusCounts = useMemo(
     () =>
       projects.reduce(
@@ -659,6 +770,13 @@ function MemberDashboard() {
       };
     }
 
+    if (isSkillsPath) {
+      return {
+        title: "Skills",
+        subtitle: "Keep your strengths current and curate courses for the next step.",
+      };
+    }
+
     return {
       title: "Member workspace",
       subtitle: "Projects, tickets, and delivery flow.",
@@ -670,6 +788,7 @@ function MemberDashboard() {
     isDocumentsPath,
     isProjectsPath,
     isRequestsPath,
+    isSkillsPath,
     projectIdFromPath,
     projectTicketsPathId,
     selectedProject,
@@ -693,6 +812,10 @@ function MemberDashboard() {
 
     if (key === "documents") {
       return isDocumentsPath;
+    }
+
+    if (key === "skills") {
+      return isSkillsPath;
     }
 
     return false;
@@ -723,6 +846,11 @@ function MemberDashboard() {
   function logoutMember() {
     clearPortalSession();
     redirectToPortalLogin();
+  }
+
+  function refreshWorkspace() {
+    loadHomeData();
+    loadSkillsData();
   }
 
   return (
@@ -808,7 +936,7 @@ function MemberDashboard() {
                     </IconButton>
                   </>
                 ) : null}
-                <button aria-label="Refresh workspace" className="icon-button" onClick={loadHomeData} title="Refresh workspace" type="button">
+                <button aria-label="Refresh workspace" className="icon-button" onClick={refreshWorkspace} title="Refresh workspace" type="button">
                   <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24">
                     <path d="M20 7v5h-5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
                     <path d="M4 17v-5h5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
@@ -855,6 +983,22 @@ function MemberDashboard() {
           {isProjectsPath && (!loading || projects.length) ? <ProjectsPage loading={loading} projects={projects} /> : null}
           {isRequestsPath ? <RequestsPage loading={loading} requests={requestsFeed} /> : null}
           {isDocumentsPath ? <DocumentsPage documents={documentsFeed} loading={loading} /> : null}
+          {isSkillsPath ? (
+            <SkillsPage
+              courses={coursesDraft}
+              member={memberProfile || session.user}
+              onAddCourse={addCourseRow}
+              onAddSkill={addSkillRow}
+              onCourseChange={updateCourseRow}
+              onCourseRemove={removeCourseRow}
+              onSave={handleSkillsSave}
+              onSkillChange={updateSkillRow}
+              onSkillRemove={removeSkillRow}
+              onViewAllSkills={() => setIsViewingAllSkills(true)}
+              saving={savingSkills}
+              skills={skillsDraft}
+            />
+          ) : null}
           {projectIdFromPath ? (
             <ProjectDetail
               activeTab={activeProjectTab}
@@ -921,6 +1065,15 @@ function MemberDashboard() {
             routeTo(ticketPath);
           }}
           ticket={shareTicket}
+        />
+      ) : null}
+      {isViewingAllSkills ? (
+        <SkillsModal
+          member={memberProfile || session.user}
+          onClose={() => setIsViewingAllSkills(false)}
+          onSkillChange={updateSkillRow}
+          onSkillRemove={removeSkillRow}
+          skills={skillsDraft}
         />
       ) : null}
       {isEditingTicket && selectedTicket ? (
@@ -1060,6 +1213,211 @@ function DocumentsPage({ documents, loading }) {
         {!documents.length ? <EmptyCard copy={loading ? "Loading documents..." : "No resources attached to your projects yet."} /> : null}
       </div>
     </section>
+  );
+}
+
+function SkillsPage({
+  courses,
+  member,
+  onAddCourse,
+  onAddSkill,
+  onCourseChange,
+  onCourseRemove,
+  onSave,
+  onSkillChange,
+  onSkillRemove,
+  onViewAllSkills,
+  saving,
+  skills,
+}) {
+  const displaySkills = skills
+    .map((skill, index) => ({ skill, sourceIndex: index }))
+    .reverse();
+  const previewSkills = displaySkills.slice(0, 6);
+  const remainingSkillsCount = Math.max(skills.length - previewSkills.length, 0);
+
+  return (
+    <section className="space-y-5">
+      <article className="surface-card p-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="eyebrow">Your skills</p>
+            <h2 className="section-title mt-2">Capabilities snapshot</h2>
+            <p className="muted-text mt-1.5 text-sm">
+              Maintain your current skill map for {member?.name || "your profile"} in a compact, easy-to-scan list.
+            </p>
+          </div>
+          <button className="secondary-button" onClick={onAddSkill} type="button">
+            Add skills
+          </button>
+        </div>
+
+        <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8">
+          <SkillCards onSkillChange={onSkillChange} onSkillRemove={onSkillRemove} skills={previewSkills} />
+          {!skills.length ? <EmptyCard copy="No skills added yet. Add your first skill to build the profile." /> : null}
+        </div>
+
+        {remainingSkillsCount > 0 ? (
+          <div className="mt-4 flex flex-col gap-2 rounded-xl border border-[var(--border)] bg-[color:var(--surface-muted)] px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+            <p className="muted-text text-xs sm:text-sm">
+              Showing the latest 6 skills. {remainingSkillsCount} more {remainingSkillsCount === 1 ? "entry" : "entries"} available.
+            </p>
+            <button className="secondary-button self-start px-3 py-2 text-xs sm:self-auto sm:text-sm" onClick={onViewAllSkills} type="button">
+              View all
+            </button>
+          </div>
+        ) : null}
+
+        <div className="mt-5 flex justify-end">
+          <button className="primary-button" disabled={saving} onClick={onSave} type="button">
+            {saving ? "Saving..." : "Save skills"}
+          </button>
+        </div>
+      </article>
+
+      <article className="surface-card p-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="eyebrow">Explore more</p>
+            <h2 className="section-title mt-3">Courses to follow next</h2>
+            <p className="muted-text mt-2 text-sm">
+              Add learning resources you want to revisit, recommend, or track for your growth path.
+            </p>
+          </div>
+          <button className="secondary-button" onClick={onAddCourse} type="button">
+            Add course
+          </button>
+        </div>
+
+        <div className="mt-6 space-y-4">
+          {courses.map((course, index) => (
+            <div className="surface-muted p-4" key={`course-${index}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="grid flex-1 gap-4">
+                  <label className="block text-sm font-semibold text-foreground">
+                    Course name
+                    <input
+                      className="input-field mt-2"
+                      onChange={(event) => onCourseChange(index, "title", event.target.value)}
+                      placeholder="Advanced React Patterns"
+                      value={course.title || ""}
+                    />
+                  </label>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="block text-sm font-semibold text-foreground">
+                      Provider
+                      <input
+                        className="input-field mt-2"
+                        onChange={(event) => onCourseChange(index, "provider", event.target.value)}
+                        placeholder="Frontend Masters"
+                        value={course.provider || ""}
+                      />
+                    </label>
+                    <label className="block text-sm font-semibold text-foreground">
+                      Link
+                      <input
+                        className="input-field mt-2"
+                        onChange={(event) => onCourseChange(index, "url", event.target.value)}
+                        placeholder="https://"
+                        value={course.url || ""}
+                      />
+                    </label>
+                  </div>
+                  <label className="block text-sm font-semibold text-foreground">
+                    Note
+                    <textarea
+                      className="input-field mt-2 min-h-24"
+                      onChange={(event) => onCourseChange(index, "note", event.target.value)}
+                      placeholder="Why this course matters or what to focus on."
+                      value={course.note || ""}
+                    />
+                  </label>
+                </div>
+                <button className="secondary-button px-3" onClick={() => onCourseRemove(index)} type="button">
+                  Remove
+                </button>
+              </div>
+            </div>
+          ))}
+          {!courses.length ? <EmptyCard copy="No courses found." /> : null}
+        </div>
+
+        <div className="mt-6 flex justify-end">
+          <button className="primary-button" disabled={saving} onClick={onSave} type="button">
+            {saving ? "Saving..." : "Save courses"}
+          </button>
+        </div>
+      </article>
+    </section>
+  );
+}
+
+function SkillCards({ onSkillChange, onSkillRemove, skills }) {
+  return skills.map(({ skill, sourceIndex }, index) => (
+    <div
+      className="group flex min-h-[52px] items-center gap-2 rounded-full border border-[var(--border)] bg-white px-2.5 py-2 shadow-[var(--shadow-xs)] transition hover:border-[color:var(--primary)] hover:bg-[color:var(--primary-softer)]"
+      key={`skill-${sourceIndex}`}
+    >
+      <div className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[color:var(--primary-soft)] text-[11px] font-bold text-[color:var(--primary-strong)]">
+        {String(index + 1).padStart(2, "0")}
+      </div>
+      <label className="min-w-0 flex-1">
+        <input
+          className="w-full border-0 bg-transparent p-0 text-sm font-semibold leading-5 text-foreground outline-none placeholder:text-sm placeholder:font-medium placeholder:text-slate-400"
+          onChange={(event) => onSkillChange(sourceIndex, "name", event.target.value)}
+          placeholder="Add a skill"
+          value={skill.name || ""}
+        />
+      </label>
+      <button
+        aria-label={`Remove skill ${skill.name || index + 1}`}
+        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[color:var(--surface-muted)] text-xs font-bold text-slate-500 transition hover:border-[color:var(--danger)] hover:bg-[color:var(--danger-soft)] hover:text-[color:var(--danger)]"
+        onClick={() => onSkillRemove(sourceIndex)}
+        type="button"
+      >
+        <svg aria-hidden="true" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24">
+          <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+        </svg>
+      </button>
+    </div>
+  ));
+}
+
+function SkillsModal({ member, onClose, onSkillChange, onSkillRemove, skills }) {
+  const displaySkills = skills
+    .map((skill, index) => ({ skill, sourceIndex: index }))
+    .reverse();
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 px-4 py-6">
+      <div className="surface-card flex max-h-[85vh] w-full max-w-6xl flex-col overflow-hidden">
+        <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] px-6 py-5">
+          <div>
+            <h2 className="section-title">All skills for {member?.name || "your profile"}</h2>
+            <p className="muted-text mt-2 text-sm leading-6">
+              Latest skills appear first. Review or edit the full capability list here.
+            </p>
+          </div>
+          <button aria-label="Close all skills dialog" className="icon-button" onClick={onClose} type="button">
+            <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24">
+              <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="overflow-y-auto px-6 py-6">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 2xl:grid-cols-8">
+            <SkillCards onSkillChange={onSkillChange} onSkillRemove={onSkillRemove} skills={displaySkills} />
+          </div>
+        </div>
+
+        <div className="flex justify-end border-t border-[var(--border)] px-6 py-4">
+          <button className="secondary-button" onClick={onClose} type="button">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1537,21 +1895,22 @@ function EditTicketModal({ loading, members, onClose, onSubmit, ticket }) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 px-4">
-      <div className="surface-card w-full max-w-2xl p-6">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h2 className="section-title">Edit {ticket.title}</h2>
-            <p className="muted-text mt-3 text-sm leading-6">Update ownership, timing, status, or details without leaving the ticket view.</p>
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-foreground/40 px-4 py-6">
+      <div className="flex min-h-full items-center justify-center">
+        <div className="surface-card flex w-full max-w-2xl flex-col overflow-hidden sm:max-h-[calc(100vh-3rem)]">
+          <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] p-6">
+            <div>
+              <h2 className="section-title">Edit {ticket.title}</h2>
+              <p className="muted-text mt-3 text-sm leading-6">Update ownership, timing, status, or details without leaving the ticket view.</p>
+            </div>
+            <button aria-label="Close edit ticket dialog" className="icon-button" onClick={onClose} type="button">
+              <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24">
+                <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+              </svg>
+            </button>
           </div>
-          <button aria-label="Close edit ticket dialog" className="icon-button" onClick={onClose} type="button">
-            <svg aria-hidden="true" className="h-5 w-5" fill="none" viewBox="0 0 24 24">
-              <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
-            </svg>
-          </button>
-        </div>
 
-        <form className="mt-5 grid gap-4" onSubmit={handleSubmit}>
+          <form className="mt-0 grid gap-4 overflow-y-auto p-6" onSubmit={handleSubmit}>
           <Field label="Title">
             <input className="input-field mt-2" name="title" onChange={handleChange} required value={form.title} />
           </Field>
@@ -1610,15 +1969,16 @@ function EditTicketModal({ loading, members, onClose, onSubmit, ticket }) {
             <textarea className="input-field mt-2 min-h-24" name="urlsText" onChange={handleChange} placeholder="One link per line" value={form.urlsText} />
           </Field>
 
-          <div className="flex flex-wrap justify-end gap-3">
-            <button className="secondary-button" onClick={onClose} type="button">
-              Close
-            </button>
-            <button className="primary-button" disabled={loading} type="submit">
-              {loading ? "Saving..." : "Save changes"}
-            </button>
-          </div>
-        </form>
+            <div className="sticky bottom-0 -mx-6 mt-2 flex flex-wrap justify-end gap-3 border-t border-[var(--border)] bg-[color:var(--surface)] px-6 pt-4">
+              <button className="secondary-button" onClick={onClose} type="button">
+                Close
+              </button>
+              <button className="primary-button" disabled={loading} type="submit">
+                {loading ? "Saving..." : "Save changes"}
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   );

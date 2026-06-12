@@ -6,6 +6,7 @@ import {
   addProjectResources,
   addProjectTicket,
   clearAdminSession,
+  getMemberDetail,
   getAdminSession,
   getAdminSessionStatus,
   getProject,
@@ -14,6 +15,7 @@ import {
   listMembers,
   listProjects,
   listRequests,
+  updateAdminRequestStatus,
   updateProjectMembers,
   updateProjectTicket,
   updateSprintStatus,
@@ -164,6 +166,8 @@ function AdminDashboard() {
   const [requests, setRequests] = useState([]);
   const [issues, setIssues] = useState([]);
   const [selectedProject, setSelectedProject] = useState(null);
+  const [selectedMemberDetail, setSelectedMemberDetail] = useState(null);
+  const [selectedMemberProjects, setSelectedMemberProjects] = useState([]);
   const [projectTickets, setProjectTickets] = useState([]);
   const [selectedMemberIds, setSelectedMemberIds] = useState([]);
   const [memberSearch, setMemberSearch] = useState("");
@@ -176,6 +180,7 @@ function AdminDashboard() {
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [updatingRequestId, setUpdatingRequestId] = useState("");
 
   const isDashboardPath = path === "/" || path === "/admin";
   const isClientsPath = path === "/clients";
@@ -190,6 +195,7 @@ function AdminDashboard() {
   const isSettingsPath = path === "/settings";
   const isProjectCreatePath = path === "/projects/new";
   const projectIdFromPath = !isProjectCreatePath ? path.match(/^\/projects\/([^/]+)$/)?.[1] || "" : "";
+  const memberIdFromPath = path.match(/^\/members\/([^/]+)$/)?.[1] || "";
 
   const activeMembers = useMemo(() => members.filter((member) => member.status === "active"), [members]);
   const invitedMembers = useMemo(() => members.filter((member) => member.status === "invited"), [members]);
@@ -338,6 +344,25 @@ function AdminDashboard() {
     }
   }
 
+  async function loadMemberDetail(memberId) {
+    setLoading(true);
+    setError("");
+    setStatus("");
+
+    try {
+      const data = await getMemberDetail(memberId);
+      setSelectedMemberDetail(data.member || null);
+      setSelectedMemberProjects(data.projects || []);
+    } catch (requestError) {
+      if (isSessionExpiredError(requestError)) {
+        return;
+      }
+      setError(requestError.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (!isLoggedIn) {
       return;
@@ -379,6 +404,16 @@ function AdminDashboard() {
     setProjectTickets([]);
     setSelectedMemberIds([]);
   }, [isLoggedIn, projectIdFromPath]);
+
+  useEffect(() => {
+    if (isLoggedIn && memberIdFromPath) {
+      loadMemberDetail(memberIdFromPath);
+      return;
+    }
+
+    setSelectedMemberDetail(null);
+    setSelectedMemberProjects([]);
+  }, [isLoggedIn, memberIdFromPath]);
 
   useEffect(() => {
     if (["/boards", "/sprints", "/reports"].includes(path)) {
@@ -843,6 +878,25 @@ function AdminDashboard() {
     }
   }
 
+  async function handleRequestStatusChange(requestId, statusValue) {
+    setUpdatingRequestId(requestId);
+    setStatus("");
+    setError("");
+
+    try {
+      const data = await updateAdminRequestStatus(requestId, statusValue);
+      setRequests((current) => current.map((requestItem) => (requestItem._id === requestId ? data.request : requestItem)));
+      setStatus(data.message);
+    } catch (requestError) {
+      if (isSessionExpiredError(requestError)) {
+        return;
+      }
+      setError(requestError.message);
+    } finally {
+      setUpdatingRequestId("");
+    }
+  }
+
   function logoutAdmin() {
     clearAdminSession();
     setAdminSession({});
@@ -896,6 +950,12 @@ function AdminDashboard() {
       title: "Project workspace",
       description: "Review project details, manage members, and raise tickets from one clean workspace.",
     };
+  } else if (memberIdFromPath) {
+    pageMeta = {
+      eyebrow: "Members",
+      title: "Member detail",
+      description: "Review skills, learning focus, and assigned projects for this contributor.",
+    };
   } else if (isProjectsPath) {
     pageMeta = {
       eyebrow: "Projects",
@@ -915,7 +975,7 @@ function AdminDashboard() {
       sidebar={(
         <Sidebar>
           <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-blue-600 text-sm font-bold text-white">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[color:var(--primary-soft)] text-sm font-bold text-[color:var(--primary-strong)]">
               OD
             </div>
             <div>
@@ -1080,7 +1140,11 @@ function AdminDashboard() {
           ) : null}
 
           {isMembersPath ? (
-            <MembersPage members={filteredMembers} searchValue={memberDirectorySearch} onSearch={setMemberDirectorySearch} />
+            <MembersPage members={filteredMembers} searchValue={memberDirectorySearch} onOpenMember={(memberId) => routeTo(`/members/${memberId}`)} onSearch={setMemberDirectorySearch} />
+          ) : null}
+
+          {memberIdFromPath ? (
+            <MemberDetailPage loading={loading} member={selectedMemberDetail} onBack={() => routeTo("/members")} projects={selectedMemberProjects} />
           ) : null}
 
           {isProjectsPath ? (
@@ -1088,7 +1152,13 @@ function AdminDashboard() {
           ) : null}
 
           {isRequestsPath ? (
-            <RequestsPage requests={filteredRequests} searchValue={requestSearch} onSearch={setRequestSearch} />
+            <RequestsPage
+              onSearch={setRequestSearch}
+              onStatusChange={handleRequestStatusChange}
+              requests={filteredRequests}
+              searchValue={requestSearch}
+              updatingRequestId={updatingRequestId}
+            />
           ) : null}
 
           {isIssuesPath ? (
@@ -1140,7 +1210,7 @@ function DashboardHome({
           </div>
           <div className="mt-6 grid gap-4 lg:grid-cols-2">
             {projects.slice(0, 4).map((project) => (
-              <button className="surface-muted w-full p-5 text-left hover:border-violet-200 hover:shadow-md" key={project._id} onClick={() => routeTo(`/projects/${project._id}`)} type="button">
+              <button className="surface-muted surface-interactive w-full p-5 text-left" key={project._id} onClick={() => routeTo(`/projects/${project._id}`)} type="button">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h3 className="text-lg font-semibold text-slate-900">{project.name}</h3>
@@ -1178,7 +1248,7 @@ function DashboardHome({
             <h2 className="section-title mt-3 text-xl">Priority items</h2>
             <div className="mt-5 space-y-3">
               {recentUpdates.map((item) => (
-                <button className="surface-muted w-full p-4 text-left hover:border-violet-200" key={item._id} onClick={() => routeTo(item.createdBy ? "/requests" : "/issues")} type="button">
+                <button className="surface-muted surface-interactive w-full p-4 text-left" key={item._id} onClick={() => routeTo(item.createdBy ? "/requests" : "/issues")} type="button">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="font-semibold text-slate-900">{item.title}</p>
@@ -1540,7 +1610,7 @@ function ClientsPage({ clients, onSearch, searchValue }) {
   );
 }
 
-function MembersPage({ members, onSearch, searchValue }) {
+function MembersPage({ members, onOpenMember, onSearch, searchValue }) {
   return (
     <DirectoryPage actionLabel="Add member" countLabel={`${members.length} total`} onAction={() => routeTo("/members/new")} onSearch={onSearch} searchPlaceholder="Search members" searchValue={searchValue} title="User Management">
       <div className="table-shell mt-6">
@@ -1550,13 +1620,14 @@ function MembersPage({ members, onSearch, searchValue }) {
               <tr>
                 <th>User</th>
                 <th>Status</th>
+                <th>Skills</th>
                 <th>Invited</th>
                 <th>Password Set</th>
               </tr>
             </thead>
             <tbody>
               {members.map((member) => (
-                <tr key={member._id}>
+                <tr className="cursor-pointer" key={member._id} onClick={() => onOpenMember(member._id)}>
                   <td>
                     <div className="flex items-center gap-3">
                       <span className="avatar-badge">{getInitials(member.name)}</span>
@@ -1567,6 +1638,7 @@ function MembersPage({ members, onSearch, searchValue }) {
                     </div>
                   </td>
                   <td><StatusBadge status={member.status} /></td>
+                  <td>{member.skills?.length || 0}</td>
                   <td>{formatDate(member.invitedAt)}</td>
                   <td>{formatDate(member.passwordSetAt)}</td>
                 </tr>
@@ -1576,6 +1648,134 @@ function MembersPage({ members, onSearch, searchValue }) {
         </div>
       </div>
     </DirectoryPage>
+  );
+}
+
+function MemberDetailPage({ loading, member, onBack, projects }) {
+  if (!member && loading) {
+    return <section className="surface-card mt-6 p-6 text-sm text-slate-500">Loading member...</section>;
+  }
+
+  if (!member) {
+    return (
+      <section className="surface-card mt-6 p-6">
+        <button className="secondary-button" onClick={onBack} type="button">
+          Back to members
+        </button>
+        <EmptyStatePanel className="mt-6" copy="We could not load this member profile." title="Member not found" />
+      </section>
+    );
+  }
+
+  return (
+    <section className="mt-6 space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <button className="secondary-button" onClick={onBack} type="button">
+          Back to members
+        </button>
+        <span className="glass-chip">{projects.length} assigned projects</span>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[0.78fr_1.22fr]">
+        <article className="surface-card p-6">
+          <div className="flex items-center gap-4">
+            <span className="avatar-badge h-14 w-14 text-base">{getInitials(member.name)}</span>
+            <div>
+              <p className="text-xl font-semibold text-slate-900">{member.name}</p>
+              <p className="muted-text mt-1 text-sm">{member.email}</p>
+            </div>
+          </div>
+
+          <div className="mt-6 space-y-3">
+            <DetailRow label="Status" value={<StatusBadge status={member.status} />} />
+            <DetailRow label="Invited" value={formatDate(member.invitedAt)} />
+            <DetailRow label="Password set" value={formatDate(member.passwordSetAt)} />
+            <DetailRow label="Skills" value={member.skills?.length || 0} />
+            <DetailRow label="Courses" value={member.recommendedCourses?.length || 0} />
+          </div>
+        </article>
+
+        <div className="grid gap-6">
+          <article className="surface-card p-6">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="eyebrow">Skills</p>
+                <h2 className="section-title mt-3 text-xl">Current capability map</h2>
+              </div>
+              <span className="glass-chip">{member.skills?.length || 0} listed</span>
+            </div>
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
+              {(member.skills || []).map((skill, index) => (
+                <article className="surface-muted p-4" key={`${skill.name}-${index}`}>
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-semibold text-slate-900">{skill.name}</p>
+                    <span className="badge badge-primary">{skill.rating}/5</span>
+                  </div>
+                  <div className="mt-4 flex gap-2">
+                    {[1, 2, 3, 4, 5].map((ratingValue) => (
+                      <span
+                        className={`h-2 flex-1 rounded-full ${ratingValue <= skill.rating ? "bg-[color:var(--primary)]" : "bg-slate-200"}`}
+                        key={ratingValue}
+                      />
+                    ))}
+                  </div>
+                </article>
+              ))}
+            </div>
+            {!member.skills?.length ? <EmptyStatePanel className="mt-6" copy="This member has not added any skills yet." title="No skills yet" /> : null}
+          </article>
+
+          <article className="surface-card p-6">
+            <p className="eyebrow">Explore more</p>
+            <h2 className="section-title mt-3 text-xl">Courses and learning queue</h2>
+            <div className="mt-6 grid gap-4 lg:grid-cols-2">
+              {(member.recommendedCourses || []).map((course, index) => (
+                <article className="surface-muted p-4" key={`${course.title}-${index}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-slate-900">{course.title || "Untitled course"}</p>
+                      <p className="muted-text mt-1 text-sm">{course.provider || "Provider not added"}</p>
+                    </div>
+                    {course.url ? (
+                      <a className="secondary-button h-9 px-3" href={course.url} rel="noreferrer" target="_blank">
+                        Open
+                      </a>
+                    ) : null}
+                  </div>
+                  <p className="muted-text mt-3 text-sm">{course.note || "No course notes added."}</p>
+                </article>
+              ))}
+            </div>
+            {!member.recommendedCourses?.length ? <EmptyStatePanel className="mt-6" copy="No courses found." title="No courses yet" /> : null}
+          </article>
+
+          <article className="surface-card p-6">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="eyebrow">Projects</p>
+                <h2 className="section-title mt-3 text-xl">Assigned workspaces</h2>
+              </div>
+              <span className="glass-chip">{projects.length} active links</span>
+            </div>
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
+              {projects.map((project) => (
+                <article className="surface-muted p-4" key={project._id}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-slate-900">{project.name}</p>
+                      <p className="muted-text mt-1 text-sm">{project.clientEmail || "No client assigned"}</p>
+                    </div>
+                    <StatusBadge status={project.status} />
+                  </div>
+                  <p className="muted-text mt-3 text-sm">{project.category || "Uncategorized workspace"}</p>
+                </article>
+              ))}
+            </div>
+            {!projects.length ? <EmptyStatePanel className="mt-6" copy="This member is not assigned to any projects yet." title="No assigned projects" /> : null}
+          </article>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -1603,7 +1803,7 @@ function ProjectsPage({ projects, onSearch, searchValue }) {
   );
 }
 
-function RequestsPage({ requests, onSearch, searchValue }) {
+function RequestsPage({ requests, onSearch, onStatusChange, searchValue, updatingRequestId }) {
   return (
     <DirectoryPage countLabel={`${requests.length} total`} onSearch={onSearch} searchPlaceholder="Search requests" searchValue={searchValue} title="Requests">
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
@@ -1614,7 +1814,19 @@ function RequestsPage({ requests, onSearch, searchValue }) {
                 <h3 className="font-semibold text-slate-900">{requestItem.title}</h3>
                 <p className="muted-text mt-1 text-sm">{requestItem.project?.name || "Project"}</p>
               </div>
-              <StatusBadge status={requestItem.status} />
+              <div className="flex min-w-[148px] flex-col items-end gap-2">
+                <StatusBadge status={requestItem.status} />
+                <select
+                  className="input-field w-full !rounded-lg !px-3 !py-2 !text-xs font-semibold"
+                  disabled={updatingRequestId === requestItem._id}
+                  onChange={(event) => onStatusChange(requestItem._id, event.target.value)}
+                  value={requestItem.status || "open"}
+                >
+                  <option value="open">Open</option>
+                  <option value="reviewing">Reviewing</option>
+                  <option value="closed">Closed</option>
+                </select>
+              </div>
             </div>
             <p className="muted-text mt-3 text-sm">{requestItem.description || "No description"}</p>
             <p className="muted-text mt-3 text-sm">Raised by {requestItem.createdBy?.name || "-"}</p>
@@ -2008,7 +2220,7 @@ function FormPage({ children, description, loading, onBack, onSubmit, submitLabe
 function MetricCard({ label, note, onClick, value }) {
   const Tag = onClick ? "button" : "article";
   return (
-    <Tag className={`metric-card w-full text-left ${onClick ? "cursor-pointer hover:border-violet-200 hover:shadow-md" : ""}`} onClick={onClick} type={onClick ? "button" : undefined}>
+    <Tag className={`metric-card w-full text-left ${onClick ? "surface-interactive cursor-pointer" : ""}`} onClick={onClick} type={onClick ? "button" : undefined}>
       <p className="muted-text text-sm font-semibold">{label}</p>
       <strong className="metric-value">{value}</strong>
       <p className="muted-text mt-2 text-sm">{note}</p>
@@ -2019,10 +2231,19 @@ function MetricCard({ label, note, onClick, value }) {
 function CompactStat({ label, onClick, value }) {
   const Tag = onClick ? "button" : "div";
   return (
-    <Tag className={`surface-card w-full p-4 text-left ${onClick ? "cursor-pointer hover:border-violet-200 hover:shadow-md" : ""}`} onClick={onClick} type={onClick ? "button" : undefined}>
+    <Tag className={`surface-card w-full p-4 text-left ${onClick ? "surface-interactive cursor-pointer" : ""}`} onClick={onClick} type={onClick ? "button" : undefined}>
       <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p>
       <p className="mt-2 text-sm font-semibold text-slate-900">{value}</p>
     </Tag>
+  );
+}
+
+function DetailRow({ label, value }) {
+  return (
+    <div className="surface-muted flex items-center justify-between gap-3 p-4">
+      <span className="text-sm font-semibold text-slate-600">{label}</span>
+      <div className="text-sm font-semibold text-slate-900">{value}</div>
+    </div>
   );
 }
 
@@ -2032,7 +2253,7 @@ function QuickTable({ columns, onClick, rows, title }) {
   }
 
   return (
-    <section className={`surface-card p-6 ${onClick ? "cursor-pointer hover:border-violet-200 hover:shadow-md" : ""}`} onClick={onClick}>
+    <section className={`surface-card p-6 ${onClick ? "surface-interactive cursor-pointer" : ""}`} onClick={onClick}>
       <p className="eyebrow">{title}</p>
       <h2 className="section-title mt-3 text-xl">{title}</h2>
       <div className="table-shell mt-5">

@@ -88,4 +88,9 @@ const ticketSchema = new mongoose.Schema(
   },
 );
 
+ticketSchema.index({ ownerAdmin: 1, createdAt: -1 });
+ticketSchema.index({ ownerAdmin: 1, project: 1, createdAt: -1 });
+ticketSchema.index({ ownerAdmin: 1, assignedTo: 1, createdAt: -1 });
+ticketSchema.index({ ownerAdmin: 1, status: 1, createdAt: -1 });
+
 export default mongoose.model("Ticket", ticketSchema);

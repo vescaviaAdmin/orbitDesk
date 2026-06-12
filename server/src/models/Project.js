@@ -163,4 +163,9 @@ const projectSchema = new mongoose.Schema(
   },
 );
 
+projectSchema.index({ ownerAdmin: 1, createdAt: -1 });
+projectSchema.index({ ownerAdmin: 1, clientEmail: 1 });
+projectSchema.index({ ownerAdmin: 1, members: 1 });
+projectSchema.index({ ownerAdmin: 1, status: 1, createdAt: -1 });
+
 export default mongoose.model("Project", projectSchema);

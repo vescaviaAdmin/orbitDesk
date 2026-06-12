@@ -27,13 +27,13 @@ function GetStarted() {
     <main className="app-shell grid place-items-center">
       <section className="neo-panel w-full max-w-md p-6">
         <p className="eyebrow">OrbitDesk Admin</p>
-        <h1 className="mt-3 text-3xl font-semibold text-white">Get started</h1>
+        <h1 className="mt-3 text-3xl font-semibold text-slate-900">Get started</h1>
         <p className="muted-text mt-2 text-sm leading-6">
           Enter your admin email. We will send a password setup link so you can access your isolated workspace.
         </p>
 
         <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
-          <label className="block text-sm font-semibold text-white" htmlFor="email">
+          <label className="block text-sm font-semibold text-slate-900" htmlFor="email">
             Work email
             <input
               className="neo-input"
@@ -55,7 +55,7 @@ function GetStarted() {
 
         <div className="muted-text mt-5 flex items-center justify-between text-sm">
           <span>Already active?</span>
-          <button className="font-semibold text-cyan-300" onClick={() => window.location.assign("/login")} type="button">
+          <button className="auth-link" onClick={() => window.location.assign("/login")} type="button">
             Login
           </button>
         </div>

@@ -50,8 +50,8 @@ function SetPassword() {
     <main className="app-shell grid place-items-center">
       <form className="neo-panel w-full max-w-md p-6" onSubmit={handleSubmit}>
         <p className="eyebrow">OrbitDesk {role}</p>
-        <h1 className="mt-3 text-3xl font-bold text-white">Set password</h1>
-        <label className="mt-6 block text-sm font-semibold text-white" htmlFor="password">
+        <h1 className="mt-3 text-3xl font-bold text-slate-900">Set password</h1>
+        <label className="mt-6 block text-sm font-semibold text-slate-900" htmlFor="password">
           New password
           <div className="mt-2 flex items-center gap-2">
             <input

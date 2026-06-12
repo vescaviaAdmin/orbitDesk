@@ -31,6 +31,17 @@ export function listMemberProjects() {
   return request("/member/projects");
 }
 
+export function getMemberSkills() {
+  return request("/member/skills");
+}
+
+export function updateMemberSkills(payload) {
+  return request("/member/skills", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function getMemberProject(projectId) {
   return request(`/member/projects/${projectId}`);
 }
