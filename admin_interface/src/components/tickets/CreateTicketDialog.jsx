@@ -74,9 +74,10 @@ function CreateTicketDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex items-end justify-center bg-slate-950/25 p-3 sm:items-center sm:p-6">
-      <div className="w-full max-w-2xl rounded-xl border border-blue-100 bg-white shadow-2xl">
-        <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-6">
+    <div className="fixed inset-0 z-40 overflow-y-auto bg-slate-950/25 p-3 sm:p-6">
+      <div className="flex min-h-full items-end justify-center sm:items-center">
+        <div className="flex w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-[color:var(--border)] bg-white shadow-2xl sm:max-h-[calc(100vh-3rem)]">
+          <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-6">
           <div>
             <p className="eyebrow">{titleLabel}</p>
             <h3 className="mt-3 text-2xl font-semibold tracking-[-0.03em] text-slate-900">{projectName}</h3>
@@ -85,79 +86,80 @@ function CreateTicketDialog({
           <button aria-label="Close create ticket dialog" className="secondary-button px-3 py-2" onClick={onClose} type="button">
             Close
           </button>
-        </div>
+          </div>
 
-        <form className="grid gap-4 p-6" onSubmit={handleSubmit}>
-          <Field error={errors.title} label="Ticket title">
-            <input className="input-field mt-2" name="title" onChange={handleChange} placeholder="Payment webhook fails on retry" value={form.title} />
-          </Field>
+          <form className="grid gap-4 overflow-y-auto p-6" onSubmit={handleSubmit}>
+            <Field error={errors.title} label="Ticket title">
+              <input className="input-field mt-2" name="title" onChange={handleChange} placeholder="Payment webhook fails on retry" value={form.title} />
+            </Field>
 
-          <Field label="Description">
-            <textarea className="input-field mt-2 min-h-28" name="description" onChange={handleChange} placeholder="Add the issue context, expected behavior, and any useful reproduction notes." value={form.description} />
-          </Field>
+            <Field label="Description">
+              <textarea className="input-field mt-2 min-h-28" name="description" onChange={handleChange} placeholder="Add the issue context, expected behavior, and any useful reproduction notes." value={form.description} />
+            </Field>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            {showStatusField ? (
-              <Field label="Status">
-                <select className="input-field mt-2" name="status" onChange={handleChange} value={form.status}>
-                  <option value="open">Open</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="done">Done</option>
-                  <option value="cancel">Cancel</option>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {showStatusField ? (
+                <Field label="Status">
+                  <select className="input-field mt-2" name="status" onChange={handleChange} value={form.status}>
+                    <option value="open">Open</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="done">Done</option>
+                    <option value="cancel">Cancel</option>
+                  </select>
+                </Field>
+              ) : null}
+              <Field label="Priority">
+                <select className="input-field mt-2" name="priority" onChange={handleChange} value={form.priority}>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="critical">Critical</option>
                 </select>
               </Field>
-            ) : null}
-            <Field label="Priority">
-              <select className="input-field mt-2" name="priority" onChange={handleChange} value={form.priority}>
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-                <option value="critical">Critical</option>
-              </select>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Type">
+                <select className="input-field mt-2" name="type" onChange={handleChange} value={form.type}>
+                  <option value="bug">Bug</option>
+                  <option value="feature">Feature</option>
+                  <option value="task">Task</option>
+                  <option value="improvement">Improvement</option>
+                </select>
+              </Field>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field error={errors.assignedTo} label="Assignee">
+                <select className="input-field mt-2" name="assignedTo" onChange={handleChange} value={form.assignedTo}>
+                  <option value="">Select member</option>
+                  {members.map((member) => (
+                    <option key={member._id} value={member._id}>
+                      {member.name} ({member.email})
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field error={errors.deadline} label="Due date">
+                <input className="input-field mt-2" name="deadline" onChange={handleChange} type="date" value={form.deadline} />
+              </Field>
+            </div>
+
+            <Field label="Reference links">
+              <textarea className="input-field mt-2 min-h-24" name="urlsText" onChange={handleChange} placeholder="One link per line" value={form.urlsText} />
             </Field>
-          </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Type">
-              <select className="input-field mt-2" name="type" onChange={handleChange} value={form.type}>
-                <option value="bug">Bug</option>
-                <option value="feature">Feature</option>
-                <option value="task">Task</option>
-                <option value="improvement">Improvement</option>
-              </select>
-            </Field>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field error={errors.assignedTo} label="Assignee">
-              <select className="input-field mt-2" name="assignedTo" onChange={handleChange} value={form.assignedTo}>
-                <option value="">Select member</option>
-                {members.map((member) => (
-                  <option key={member._id} value={member._id}>
-                    {member.name} ({member.email})
-                  </option>
-                ))}
-              </select>
-            </Field>
-
-            <Field error={errors.deadline} label="Due date">
-              <input className="input-field mt-2" name="deadline" onChange={handleChange} type="date" value={form.deadline} />
-            </Field>
-          </div>
-
-          <Field label="Reference links">
-            <textarea className="input-field mt-2 min-h-24" name="urlsText" onChange={handleChange} placeholder="One link per line" value={form.urlsText} />
-          </Field>
-
-          <div className="flex items-center justify-end gap-3">
-            <button className="secondary-button" onClick={onClose} type="button">
-              Cancel
-            </button>
-            <button className="primary-button min-w-32" disabled={loading} type="submit">
-              {loading ? "Saving..." : submitLabel}
-            </button>
-          </div>
-        </form>
+            <div className="sticky bottom-0 -mx-6 mt-2 flex items-center justify-end gap-3 border-t border-slate-200 bg-white px-6 pt-4">
+              <button className="secondary-button" onClick={onClose} type="button">
+                Cancel
+              </button>
+              <button className="primary-button min-w-32" disabled={loading} type="submit">
+                {loading ? "Saving..." : submitLabel}
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   );

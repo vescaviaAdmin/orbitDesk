@@ -29,7 +29,7 @@ function TicketDetailsDrawer({ loading, members = [], onClose, onUpdateTicket, t
   return (
     <>
       <div className="fixed inset-0 z-40 flex justify-end bg-slate-950/25 p-3 sm:p-6">
-        <div className="flex h-full w-full max-w-xl flex-col overflow-hidden rounded-xl border border-blue-100 bg-white shadow-2xl">
+        <div className="flex h-full w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-[color:var(--border)] bg-white shadow-2xl">
           <div className="flex items-start justify-between gap-4 border-b border-slate-200 p-6">
             <div>
               <p className="eyebrow">Ticket Details</p>
@@ -70,7 +70,7 @@ function TicketDetailsDrawer({ loading, members = [], onClose, onUpdateTicket, t
                 <p className="text-sm font-semibold text-slate-900">Links</p>
                 <div className="space-y-2">
                   {ticket.urls.map((url) => (
-                    <a className="block rounded-xl border border-slate-200 px-4 py-3 text-sm text-violet-700 hover:bg-violet-50" href={url} key={url} rel="noreferrer" target="_blank">
+                    <a className="link-accent block rounded-xl border border-slate-200 px-4 py-3 text-sm" href={url} key={url} rel="noreferrer" target="_blank">
                       {url}
                     </a>
                   ))}
