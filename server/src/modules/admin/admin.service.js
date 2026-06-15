@@ -14,7 +14,7 @@ import { requireAdmin } from "../shared/auth/guards.js";
 import { normalizeMemberCourses, normalizeMemberSkills } from "../shared/members/member-profile.utils.js";
 import { derivePhaseStatus, normalizePlanning, normalizeSprintStatus, resolveSprintSelection } from "../shared/projects/project.utils.js";
 import { normalizeResources, validateResources } from "../shared/resources/resource.utils.js";
-import { assertTicketCoreFields, assertTicketEnums, assertValidDeadline, normalizeTicketPayload } from "../shared/tickets/ticket.utils.js";
+import { assertTicketCoreFields, assertTicketEnums, assertValidDeadline, normalizeTicketPayload, parseTicketDeadline } from "../shared/tickets/ticket.utils.js";
 
 export function createAdminService(fastify) {
   const REQUEST_STATUSES = ["open", "reviewing", "closed"];
@@ -342,6 +342,8 @@ export function createAdminService(fastify) {
       } = request.body || {};
 
       assertTicketCoreFields({ title, assignedTo, deadline }, fastify);
+      const parsedDeadline = parseTicketDeadline(deadline);
+      assertValidDeadline(parsedDeadline, fastify);
       assertTicketEnums({ status, priority, type }, fastify);
 
       const project = await Project.findOne({ _id: request.params.projectId, ownerAdmin: admin._id }).populate(
@@ -369,7 +371,7 @@ export function createAdminService(fastify) {
         priority,
         type,
         urls: normalizedUrls,
-        deadline: new Date(deadline),
+        deadline: parsedDeadline,
         createdByAdmin: admin._id,
         assignedTo,
         sprint,

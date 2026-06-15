@@ -82,6 +82,10 @@ const ticketSchema = new mongoose.Schema(
       ref: "Admin",
       default: null,
     },
+    dueReminderSentAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -92,5 +96,6 @@ ticketSchema.index({ ownerAdmin: 1, createdAt: -1 });
 ticketSchema.index({ ownerAdmin: 1, project: 1, createdAt: -1 });
 ticketSchema.index({ ownerAdmin: 1, assignedTo: 1, createdAt: -1 });
 ticketSchema.index({ ownerAdmin: 1, status: 1, createdAt: -1 });
+ticketSchema.index({ status: 1, deadline: 1, dueReminderSentAt: 1 });
 
 export default mongoose.model("Ticket", ticketSchema);

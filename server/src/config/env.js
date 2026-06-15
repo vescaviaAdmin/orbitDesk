@@ -17,6 +17,7 @@ const env = {
   nodeEnv: process.env.NODE_ENV || "development",
   mongoUri: process.env.MONGO_URI || "",
   jwtSecret: process.env.JWT_SECRET || "change-this-secret",
+  cronSecret: process.env.CRON_SECRET || "",
   clientUrl: process.env.CLIENT_URL || "http://localhost:5173",
   adminUrl: process.env.ADMIN_URL || "http://localhost:5174",
   adminApiSecret: process.env.ADMIN_API_SECRET || "change-this-admin-secret",
