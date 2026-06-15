@@ -7,6 +7,8 @@ import {
 } from "../ui/select";
 
 export default function TicketFilters({
+  assigneeScope = "all",
+  onAssigneeScopeChange,
   onProjectChange,
   onQueryChange,
   onSortChange,
@@ -14,11 +16,14 @@ export default function TicketFilters({
   projectId = "",
   projects = [],
   query = "",
+  showAssigneeScopeFilter = false,
   showProjectFilter = true,
   sort = "updatedAt",
   status = "",
 }) {
-  const hasFilters = Boolean(query || projectId || status || sort !== "updatedAt");
+  const hasFilters = Boolean(
+    query || projectId || status || sort !== "updatedAt" || (showAssigneeScopeFilter && assigneeScope !== "all"),
+  );
 
   return (
     <div className="table-toolbar flex flex-wrap items-center gap-3">
@@ -60,6 +65,18 @@ export default function TicketFilters({
         </SelectContent>
       </Select>
 
+      {showAssigneeScopeFilter ? (
+        <Select onValueChange={onAssigneeScopeChange} value={assigneeScope}>
+          <SelectTrigger aria-label="Filter by issue ownership" className="w-[150px]">
+            <SelectValue placeholder="All issues" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All issues</SelectItem>
+            <SelectItem value="mine">My issues</SelectItem>
+          </SelectContent>
+        </Select>
+      ) : null}
+
       <Select onValueChange={onSortChange} value={sort}>
         <SelectTrigger aria-label="Sort tickets" className="w-[190px]">
           <SelectValue placeholder="Recently updated" />
@@ -80,6 +97,9 @@ export default function TicketFilters({
               onProjectChange("all");
             }
             onStatusChange("all");
+            if (showAssigneeScopeFilter) {
+              onAssigneeScopeChange("all");
+            }
             onSortChange("updatedAt");
           }}
           type="button"
