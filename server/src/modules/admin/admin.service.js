@@ -5,6 +5,7 @@ import Project from "../../models/Project.js";
 import Request from "../../models/Request.js";
 import Ticket from "../../models/Ticket.js";
 import { assertEmailAvailable, normalizeEmail } from "../../utils/identity.js";
+import { runInBackground } from "../../utils/background-task.js";
 import { hashSecret } from "../../utils/password.js";
 import { createSecureToken } from "../../utils/tokens.js";
 import { sendClientPasswordSetup, sendMemberPasswordSetup, sendTicketAssignedMail } from "../mail/mail.service.js";
@@ -92,9 +93,18 @@ export function createAdminService(fastify) {
       reply.code(201);
 
       return {
-        id: client.id,
-        email: client.email,
-        status: client.status,
+        client: {
+          _id: client.id,
+          name: client.name,
+          email: client.email,
+          company: client.company,
+          phone: client.phone,
+          status: client.status,
+          agreementDocument: client.agreementDocument,
+          onboardedAt: client.onboardedAt,
+          passwordSetAt: client.passwordSetAt,
+          createdAt: client.createdAt,
+        },
         message: "Client onboarded and password setup mail sent",
       };
     },
@@ -162,6 +172,12 @@ export function createAdminService(fastify) {
         planning: normalizedProjectPlanning,
         members: activeMembers.map((member) => member._id),
         ownerAdmin: admin._id,
+      });
+
+      await project.populate({
+        path: "members",
+        select: "name email status",
+        match: { ownerAdmin: admin._id },
       });
 
       reply.code(201);
@@ -365,29 +381,22 @@ export function createAdminService(fastify) {
       await ticket.populate("assignedTo", "name email");
       await ticket.populate("project", "name");
 
-      let message = "Ticket raised and assigned to project member";
-
-      try {
-        await sendTicketAssignedMail(fastify, ticket.assignedTo, ticket, project);
-        message = "Ticket raised, assigned, and assignee notified by email";
-      } catch (mailError) {
-        fastify.log.warn(
-          {
-            err: mailError,
-            memberId: ticket.assignedTo?._id,
-            projectId: project._id,
-            ticketId: ticket._id,
-          },
-          "Ticket was created by admin but assignment email could not be sent",
-        );
-        message = "Ticket raised and assigned, but the email notification could not be sent";
-      }
+      runInBackground(
+        fastify,
+        "admin-ticket-assignment-mail",
+        () => sendTicketAssignedMail(fastify, ticket.assignedTo, ticket, project),
+        {
+          memberId: ticket.assignedTo?._id,
+          projectId: project._id,
+          ticketId: ticket._id,
+        },
+      );
 
       reply.code(201);
 
       return {
         ticket,
-        message,
+        message: "Ticket raised and assigned. Assignee notification is being processed.",
       };
     },
 
@@ -438,27 +447,20 @@ export function createAdminService(fastify) {
       await ticket.populate("assignedTo", "name email");
       await ticket.populate("project", "name");
 
-      let message = "Ticket updated successfully";
-
-      try {
-        await sendTicketAssignedMail(fastify, ticket.assignedTo, ticket, ticket.project);
-        message = "Ticket updated and assignee notified by email";
-      } catch (mailError) {
-        fastify.log.warn(
-          {
-            err: mailError,
-            memberId: ticket.assignedTo?._id,
-            projectId: ticket.project?._id,
-            ticketId: ticket._id,
-          },
-          "Ticket was updated by admin but assignment email could not be sent",
-        );
-        message = "Ticket updated successfully, but the email notification could not be sent";
-      }
+      runInBackground(
+        fastify,
+        "admin-ticket-update-mail",
+        () => sendTicketAssignedMail(fastify, ticket.assignedTo, ticket, ticket.project),
+        {
+          memberId: ticket.assignedTo?._id,
+          projectId: ticket.project?._id,
+          ticketId: ticket._id,
+        },
+      );
 
       return {
         ticket,
-        message,
+        message: "Ticket updated successfully. Assignee notification is being processed.",
       };
     },
 
@@ -520,9 +522,16 @@ export function createAdminService(fastify) {
       reply.code(201);
 
       return {
-        id: member.id,
-        email: member.email,
-        status: member.status,
+        member: {
+          _id: member.id,
+          name: member.name,
+          email: member.email,
+          status: member.status,
+          invitedAt: member.invitedAt,
+          passwordSetAt: member.passwordSetAt,
+          createdAt: member.createdAt,
+          skills: member.skills || [],
+        },
         message: "Member added and password setup mail sent",
       };
     },

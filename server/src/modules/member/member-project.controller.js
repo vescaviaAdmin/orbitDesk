@@ -13,6 +13,9 @@ export function createMemberProjectController(fastify) {
     listProjects(request) {
       return service.listProjects(request);
     },
+    getWorkspaceSummary(request) {
+      return service.getWorkspaceSummary(request);
+    },
     getProject(request) {
       return service.getProject(request);
     },
