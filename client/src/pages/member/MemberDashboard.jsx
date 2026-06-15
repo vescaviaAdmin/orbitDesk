@@ -152,6 +152,7 @@ function MemberDashboard() {
   const [projects, setProjects] = useState([]);
   const [tickets, setTickets] = useState([]);
   const [selectedProject, setSelectedProject] = useState(null);
+  const [selectedProjectTickets, setSelectedProjectTickets] = useState([]);
   const [selectedTicket, setSelectedTicket] = useState(null);
   const [projectClient, setProjectClient] = useState(null);
   const [projectRequests, setProjectRequests] = useState([]);
@@ -297,6 +298,7 @@ function MemberDashboard() {
     try {
       const data = await getMemberProject(projectId);
       setSelectedProject(data.project);
+      setSelectedProjectTickets(data.tickets || []);
       setProjectClient(data.client || null);
       setProjectRequests(data.requests || []);
       setTicketForm({
@@ -376,6 +378,7 @@ function MemberDashboard() {
     setSelectedProject(null);
     setSelectedTicket(null);
     setProjectClient(null);
+    setSelectedProjectTickets([]);
     setProjectRequests([]);
     setTicketForm(emptyTicket);
     setRequestForm(emptyRequest);
@@ -406,6 +409,9 @@ function MemberDashboard() {
 
   function applyTicketUpdate(updatedTicket) {
     setTickets((current) => current.map((ticket) => (ticket._id === updatedTicket._id ? { ...ticket, ...updatedTicket } : ticket)));
+    setSelectedProjectTickets((current) =>
+      current.map((ticket) => (ticket._id === updatedTicket._id ? { ...ticket, ...updatedTicket } : ticket)),
+    );
     setSelectedTicket((current) => (current?._id === updatedTicket._id ? { ...current, ...updatedTicket } : current));
   }
 
@@ -495,6 +501,7 @@ function MemberDashboard() {
       });
 
       setTickets((current) => [data.ticket, ...current]);
+      setSelectedProjectTickets((current) => [data.ticket, ...current]);
       setTicketForm({
         ...emptyTicket,
         assignedTo: selectedProject.members?.[0]?._id || "",
@@ -1008,7 +1015,8 @@ function MemberDashboard() {
               project={selectedProject}
               projectClient={projectClient}
               requests={projectRequests}
-              tickets={tickets}
+              tickets={selectedProjectTickets}
+              viewerMemberId={session.user?.id || session.user?._id || ""}
             />
           ) : null}
           {ticketIdFromPath ? (
@@ -1421,20 +1429,25 @@ function SkillsModal({ member, onClose, onSkillChange, onSkillRemove, skills }) 
   );
 }
 
-function ProjectDetail({ activeTab = "overview", loading, onAddResources, onStatusChange, project, projectClient, requests, tickets }) {
+function ProjectDetail({ activeTab = "overview", loading, onAddResources, onStatusChange, project, projectClient, requests, tickets, viewerMemberId = "" }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
   const [sort, setSort] = useState("updatedAt");
+  const [assigneeScope, setAssigneeScope] = useState("all");
   const [resourceRows, setResourceRows] = useState([]);
 
   useEffect(() => {
     setResourceRows([]);
   }, [project?._id]);
 
-  const projectTickets = useMemo(
-    () => tickets.filter((ticket) => ticket.project?._id === project?._id),
-    [project?._id, tickets],
-  );
+  useEffect(() => {
+    setQuery("");
+    setStatus("");
+    setSort("updatedAt");
+    setAssigneeScope("all");
+  }, [project?._id, activeTab]);
+
+  const projectTickets = useMemo(() => tickets || [], [tickets]);
 
   const filteredProjectTickets = useMemo(
     () =>
@@ -1445,6 +1458,17 @@ function ProjectDetail({ activeTab = "overview", loading, onAddResources, onStat
       }),
     [projectTickets, query, sort, status],
   );
+
+  const visibleProjectTickets = useMemo(() => {
+    if (assigneeScope !== "mine" || !viewerMemberId) {
+      return filteredProjectTickets;
+    }
+
+    return filteredProjectTickets.filter((ticket) => {
+      const assignedId = ticket.assignedTo?._id || ticket.assignedTo;
+      return assignedId === viewerMemberId;
+    });
+  }, [assigneeScope, filteredProjectTickets, viewerMemberId]);
 
   if (!project) {
     return <section className="surface-card p-6 text-sm text-muted-foreground">Loading project...</section>;
@@ -1503,21 +1527,24 @@ function ProjectDetail({ activeTab = "overview", loading, onAddResources, onStat
           title="Project issues"
         >
           <TicketFilters
+            assigneeScope={assigneeScope}
+            onAssigneeScopeChange={setAssigneeScope}
             onProjectChange={() => {}}
             onQueryChange={setQuery}
             onSortChange={setSort}
             onStatusChange={setStatus}
             query={query}
+            showAssigneeScopeFilter
             showProjectFilter={false}
             sort={sort}
             status={status}
           />
           <TicketTable
-            emptyCopy={query || status ? "No issues match your filters." : "No issues raised for this project yet."}
+            emptyCopy={query || status || assigneeScope === "mine" ? "No issues match your filters." : "No issues raised for this project yet."}
             loading={loading}
             onStatusChange={onStatusChange}
             showProject={false}
-            tickets={filteredProjectTickets}
+            tickets={visibleProjectTickets}
           />
         </TableSection>
       ) : (
