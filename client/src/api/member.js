@@ -31,6 +31,10 @@ export function listMemberProjects() {
   return request("/member/projects");
 }
 
+export function getMemberWorkspaceSummary() {
+  return request("/member/workspace-summary");
+}
+
 export function getMemberSkills() {
   return request("/member/skills");
 }

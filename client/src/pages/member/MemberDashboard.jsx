@@ -4,6 +4,7 @@ import {
   getMemberSkills,
   getMemberProject,
   getMemberTicket,
+  getMemberWorkspaceSummary,
   listMemberProjects,
   listMemberTickets,
   raiseRequest,
@@ -333,22 +334,11 @@ function MemberDashboard() {
   }
 
   async function loadProjectDirectory() {
-    if (!projects.length) {
-      setProjectDirectory([]);
-      return;
-    }
-
     setLoading(true);
 
     try {
-      const details = await Promise.all(projects.map((project) => getMemberProject(project._id)));
-      setProjectDirectory(
-        details.map((detail) => ({
-          client: detail.client || null,
-          project: detail.project,
-          requests: detail.requests || [],
-        })),
-      );
+      const data = await getMemberWorkspaceSummary();
+      setProjectDirectory(data.entries || []);
     } catch (requestError) {
       if (isSessionExpiredError(requestError)) {
         return;
@@ -386,8 +376,13 @@ function MemberDashboard() {
   }, [projectIdFromPath, projectTicketsPathId, ticketIdFromPath, createTicketProjectId, createRequestProjectId]);
 
   useEffect(() => {
-    if (isDashboardPath || isRequestsPath || isDocumentsPath) {
+    if ((isDashboardPath || isRequestsPath || isDocumentsPath) && projects.length) {
       loadProjectDirectory();
+      return;
+    }
+
+    if (!projects.length) {
+      setProjectDirectory([]);
     }
   }, [isDashboardPath, isRequestsPath, isDocumentsPath, projects]);
 

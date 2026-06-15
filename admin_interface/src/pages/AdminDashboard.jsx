@@ -669,7 +669,12 @@ function AdminDashboard() {
       const data = await handler(forms[formKey]);
       setStatus(data.message);
       setForms((current) => ({ ...current, [formKey]: emptyForms[formKey] }));
-      await loadDashboard();
+      if (formKey === "client" && data.client) {
+        setClients((current) => [data.client, ...current]);
+      }
+      if (formKey === "member" && data.member) {
+        setMembers((current) => [data.member, ...current]);
+      }
       routeTo(nextPath);
     } catch (requestError) {
       if (isSessionExpiredError(requestError)) {
@@ -703,7 +708,7 @@ function AdminDashboard() {
       setStatus(data.message);
       setForms((current) => ({ ...current, project: emptyForms.project }));
       setProjectMemberSearch("");
-      await loadDashboard();
+      setProjects((current) => [data.project, ...current]);
       routeTo("/projects");
     } catch (requestError) {
       if (isSessionExpiredError(requestError)) {
@@ -733,9 +738,9 @@ function AdminDashboard() {
     try {
       const data = await updateProjectMembers(selectedProject._id, selectedMemberIds);
       setSelectedProject(data.project);
+      setProjects((current) => current.map((project) => (project._id === data.project._id ? data.project : project)));
       setSelectedMemberIds((data.project.members || []).map((member) => member._id));
       setStatus(data.message);
-      await loadDashboard();
     } catch (requestError) {
       if (isSessionExpiredError(requestError)) {
         return;
@@ -843,8 +848,8 @@ function AdminDashboard() {
     try {
       const data = await addProjectResources(selectedProject._id, resources);
       setSelectedProject(data.project);
+      setProjects((current) => current.map((project) => (project._id === data.project._id ? data.project : project)));
       setStatus(data.message);
-      await loadDashboard();
     } catch (requestError) {
       if (isSessionExpiredError(requestError)) {
         return;
