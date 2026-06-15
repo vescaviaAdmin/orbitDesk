@@ -24,6 +24,7 @@ import {
   countPlannedTickets,
   filterAndSortTickets,
   formatDate,
+  formatDeadlineDate,
   getProjectTone,
   getStatusTone,
   normalizeStatus,
@@ -1698,7 +1699,7 @@ function TicketDetail({ loading, onStatusChange, ticket }) {
             </SummaryRow>
             <SummaryRow label="Assignee" value={ticket.assignedTo?.name || ticket.assignedTo?.email || "Unassigned"} />
             <SummaryRow label="Priority" value={normalizeStatus(ticket.priority || "medium")} />
-            <SummaryRow label="Due" value={formatDate(ticket.deadline)} />
+            <SummaryRow label="Due" value={formatDeadlineDate(ticket.deadline)} />
             <SummaryRow label="Sprint" value={ticket.sprint?.sprintName || "Not set"} />
             <SummaryRow label="Project" value={ticket.project?.name || "-"} />
             <SummaryRow label="Reporter" value="Member workspace" />
