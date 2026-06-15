@@ -151,6 +151,7 @@ HOST=0.0.0.0
 NODE_ENV=development
 MONGO_URI=mongodb://127.0.0.1:27017/orbitdesk
 JWT_SECRET=change-this-secret
+CRON_SECRET=change-this-cron-secret
 CLIENT_URL=http://localhost:5173
 ADMIN_URL=http://localhost:5174
 ALLOWED_ORIGINS=http://localhost:5173,http://localhost:5174
@@ -182,6 +183,7 @@ Import the repo into Render and choose the Blueprint deployment flow. Before the
 
 - `MONGO_URI`
 - `JWT_SECRET`
+- `CRON_SECRET`
 - `ADMIN_API_SECRET`
 - `CLOUDINARY_CLOUD_NAME`
 - `CLOUDINARY_API_KEY`
@@ -194,6 +196,8 @@ Production notes:
 - Update the default `onrender.com` URLs in `render.yaml` if you want different service names or custom domains.
 - `ALLOWED_ORIGINS` must contain the final client and admin URLs so browser requests reach the API.
 - Both static apps include SPA rewrites to `index.html`, which is required for paths like `/member/projects/:id` and `/set-password`.
+- Schedule an hourly cron request to `POST https://orbitdesk-server.onrender.com/internal/jobs/ticket-due-reminders` with `Authorization: Bearer <CRON_SECRET>` to send one-time due-soon ticket reminders.
+- In local non-production use, the reminder job can be called from `localhost` without `CRON_SECRET`. In production, `CRON_SECRET` is still required.
 
 ## 5. Deploy On Vercel
 

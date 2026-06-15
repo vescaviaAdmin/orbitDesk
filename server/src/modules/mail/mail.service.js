@@ -220,3 +220,19 @@ export async function sendTicketAssignedMail(app, member, ticket, project) {
     html: `<p>Hello ${member.name}, a new ticket was raised and assigned to you in <strong>${project.name}</strong>.</p><p>Deadline: ${new Date(ticket.deadline).toLocaleDateString("en-US")}</p><p>${urlsText}</p><p><a href="${ticketUrl}">Open ticket</a></p>`,
   });
 }
+
+export async function sendTicketDueReminderMail(app, member, ticket, project) {
+  const ticketUrl = buildMemberTicketUrl(ticket._id);
+  const deadline = new Date(ticket.deadline).toLocaleString("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "UTC",
+  });
+
+  await sendMail(app, {
+    to: member.email,
+    subject: `Reminder: ticket due soon - ${ticket.title}`,
+    text: `Hello ${member.name}, this is a reminder that "${ticket.title}" in ${project.name} is due by ${deadline}. Current status: ${ticket.status}. Open ticket: ${ticketUrl}`,
+    html: `<p>Hello ${member.name},</p><p>This is a reminder that <strong>${ticket.title}</strong> in <strong>${project.name}</strong> is due by ${deadline}.</p><p>Current status: ${ticket.status}</p><p><a href="${ticketUrl}">Open ticket</a></p>`,
+  });
+}
