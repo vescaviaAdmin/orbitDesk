@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import CreateTicketDialog from "./CreateTicketDialog";
 import { PriorityBadge, StatusBadge, TicketIdBadge, TypeBadge } from "../ui/Badges";
-import { formatDate, getTicketKey } from "../../lib/utils";
+import { formatDate, formatDeadlineDate, getTicketKey } from "../../lib/utils";
 
 function TicketDetailsDrawer({ loading, members = [], onClose, onUpdateTicket, ticket }) {
   const [isEditing, setIsEditing] = useState(false);
@@ -62,7 +62,7 @@ function TicketDetailsDrawer({ loading, members = [], onClose, onUpdateTicket, t
               <InfoTile label="Assignee" value={ticket.assignedTo?.name || ticket.assignedTo?.email || "Unassigned"} />
               <InfoTile label="Project" value={ticket.project?.name || "-"} />
               <InfoTile label="Created" value={formatDate(ticket.createdAt)} />
-              <InfoTile label="Due date" value={formatDate(ticket.deadline)} />
+              <InfoTile label="Due date" value={formatDeadlineDate(ticket.deadline)} />
             </div>
 
             {ticket.urls?.length ? (

@@ -392,6 +392,32 @@ a {
     @apply flex items-center justify-end gap-1;
   }
 
+  .ticket-alert-dot {
+    background: var(--danger);
+    @apply inline-flex h-2.5 w-2.5 shrink-0 rounded-full;
+  }
+
+  .ticket-row-due-soon {
+    background: rgba(239, 68, 68, 0.04);
+  }
+
+  .ticket-row-due-soon:hover {
+    background: rgba(239, 68, 68, 0.08);
+  }
+
+  .ticket-row-due-soon-cell {
+    border-top: 1px solid var(--danger);
+    border-bottom: 1px solid var(--danger);
+  }
+
+  .ticket-row-due-soon-cell-first {
+    border-left: 1px solid var(--danger);
+  }
+
+  .ticket-row-due-soon-cell-last {
+    border-right: 1px solid var(--danger);
+  }
+
   .table-toolbar {
     @apply flex flex-wrap items-center gap-3;
   }

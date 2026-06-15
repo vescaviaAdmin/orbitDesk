@@ -2,6 +2,7 @@ import Client from "../../models/Client.js";
 import Project from "../../models/Project.js";
 import Request from "../../models/Request.js";
 import Ticket from "../../models/Ticket.js";
+import { runInBackground } from "../../utils/background-task.js";
 import { sendTicketAssignedMail } from "../mail/mail.service.js";
 import { requireMember } from "../shared/auth/guards.js";
 import { normalizeMemberCourses, normalizeMemberSkills } from "../shared/members/member-profile.utils.js";
@@ -54,6 +55,48 @@ export function createMemberProjectService(fastify) {
         .select("name clientEmail clientCompany status description repositoryUrl category resources planning members createdAt");
 
       return { projects };
+    },
+
+    async getWorkspaceSummary(request) {
+      const member = await requireMember(request, fastify);
+      const projects = await Project.find({ members: member._id, ownerAdmin: member.ownerAdmin })
+        .sort({ createdAt: -1 })
+        .populate("members", "name email status")
+        .select("name clientEmail clientCompany status description repositoryUrl category resources planning members createdAt");
+
+      const projectIds = projects.map((project) => project._id);
+      const clientEmails = [...new Set(projects.map((project) => project.clientEmail).filter(Boolean))];
+
+      const [requests, clients] = await Promise.all([
+        Request.find({ project: { $in: projectIds }, ownerAdmin: member.ownerAdmin })
+          .sort({ createdAt: -1 })
+          .populate("createdBy", "name email"),
+        Client.find({ email: { $in: clientEmails }, ownerAdmin: member.ownerAdmin }).select("name email agreementDocument"),
+      ]);
+
+      const requestsByProjectId = requests.reduce((accumulator, requestItem) => {
+        const key = requestItem.project.toString();
+
+        if (!accumulator.has(key)) {
+          accumulator.set(key, []);
+        }
+
+        accumulator.get(key).push(requestItem);
+        return accumulator;
+      }, new Map());
+
+      const clientsByEmail = clients.reduce((accumulator, client) => {
+        accumulator.set(client.email, client);
+        return accumulator;
+      }, new Map());
+
+      return {
+        entries: projects.map((project) => ({
+          client: project.clientEmail ? clientsByEmail.get(project.clientEmail) || null : null,
+          project,
+          requests: requestsByProjectId.get(project._id.toString()) || [],
+        })),
+      };
     },
 
     async getProject(request) {
@@ -163,29 +206,22 @@ export function createMemberProjectService(fastify) {
       await ticket.populate("assignedTo", "name email");
       await ticket.populate("project", "name");
 
-      let message = "Ticket raised successfully";
-
-      try {
-        await sendTicketAssignedMail(fastify, ticket.assignedTo, ticket, project);
-        message = "Ticket raised and assignee notified by email";
-      } catch (mailError) {
-        fastify.log.warn(
-          {
-            err: mailError,
-            memberId: ticket.assignedTo?._id,
-            projectId: project._id,
-            ticketId: ticket._id,
-          },
-          "Ticket was created but assignment email could not be sent",
-        );
-        message = "Ticket raised successfully, but the email notification could not be sent";
-      }
+      runInBackground(
+        fastify,
+        "member-ticket-assignment-mail",
+        () => sendTicketAssignedMail(fastify, ticket.assignedTo, ticket, project),
+        {
+          memberId: ticket.assignedTo?._id,
+          projectId: project._id,
+          ticketId: ticket._id,
+        },
+      );
 
       reply.code(201);
 
       return {
         ticket,
-        message,
+        message: "Ticket raised successfully. Assignee notification is being processed.",
       };
     },
 
@@ -265,27 +301,20 @@ export function createMemberProjectService(fastify) {
         },
       });
 
-      let message = "Ticket updated successfully";
-
-      try {
-        await sendTicketAssignedMail(fastify, ticket.assignedTo, ticket, ticket.project);
-        message = "Ticket updated and assignee notified by email";
-      } catch (mailError) {
-        fastify.log.warn(
-          {
-            err: mailError,
-            memberId: ticket.assignedTo?._id,
-            projectId: ticket.project?._id,
-            ticketId: ticket._id,
-          },
-          "Ticket was updated by member but assignment email could not be sent",
-        );
-        message = "Ticket updated successfully, but the email notification could not be sent";
-      }
+      runInBackground(
+        fastify,
+        "member-ticket-update-mail",
+        () => sendTicketAssignedMail(fastify, ticket.assignedTo, ticket, ticket.project),
+        {
+          memberId: ticket.assignedTo?._id,
+          projectId: ticket.project?._id,
+          ticketId: ticket._id,
+        },
+      );
 
       return {
         ticket,
-        message,
+        message: "Ticket updated successfully. Assignee notification is being processed.",
       };
     },
 

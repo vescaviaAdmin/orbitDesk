@@ -1,17 +1,22 @@
 import { PriorityBadge, StatusBadge, TicketIdBadge, TypeBadge } from "../ui/Badges";
-import { formatDate, getTicketKey } from "../../lib/utils";
+import { cn, formatDate, formatDeadlineDate, getTicketKey, hasLessThan24HoursLeft } from "../../lib/utils";
 
 function TicketCard({ onClick, ticket }) {
+  const isDueSoon = hasLessThan24HoursLeft(ticket?.deadline);
+
   return (
-    <button className="ticket-card w-full text-left" onClick={onClick} type="button">
+    <button className={cn("ticket-card w-full text-left", isDueSoon && "ticket-card-due-soon")} onClick={onClick} type="button">
       <div className="flex min-h-[168px] flex-col justify-between gap-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <h4 className="line-clamp-2 text-base font-semibold text-slate-900">{ticket.title}</h4>
             <p className="muted-text mt-2 line-clamp-2 text-sm">{ticket.description || "No description provided."}</p>
           </div>
-          <div className="ticket-card-action" aria-hidden="true">
-            ↗
+          <div className="flex items-center gap-2">
+            {isDueSoon ? <span aria-label="Due within 24 hours" className="ticket-card-alert-dot" role="img" /> : null}
+            <div className="ticket-card-action" aria-hidden="true">
+              ↗
+            </div>
           </div>
         </div>
 
@@ -32,7 +37,7 @@ function TicketCard({ onClick, ticket }) {
               <p className="muted-text text-xs">{formatDate(ticket.createdAt)}</p>
             </div>
           </div>
-          <span className="muted-text text-xs">{formatDate(ticket.deadline)}</span>
+          <span className="muted-text text-xs">{formatDeadlineDate(ticket.deadline)}</span>
         </div>
       </div>
     </button>

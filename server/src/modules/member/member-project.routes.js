@@ -6,6 +6,7 @@ async function memberProjectRoutes(fastify) {
   fastify.get("/member/skills", controller.getSkills);
   fastify.put("/member/skills", controller.updateSkills);
   fastify.get("/member/projects", controller.listProjects);
+  fastify.get("/member/workspace-summary", controller.getWorkspaceSummary);
   fastify.get("/member/projects/:projectId", controller.getProject);
   fastify.get("/member/tickets", controller.listTickets);
   fastify.get("/member/tickets/:ticketId", controller.getTicket);

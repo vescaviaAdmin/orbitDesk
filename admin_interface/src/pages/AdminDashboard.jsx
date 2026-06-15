@@ -110,6 +110,42 @@ function formatDate(value) {
   });
 }
 
+function parseDeadlineToIST(value) {
+  if (!value) {
+    return null;
+  }
+
+  if (typeof value === "string") {
+    const dateMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (dateMatch) {
+      const [, year, month, day] = dateMatch;
+      return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), 18, 29, 59, 999));
+    }
+  }
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatDeadlineDate(value) {
+  const parsed = parseDeadlineToIST(value);
+
+  if (!parsed) {
+    return "-";
+  }
+
+  return parsed.toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    timeZone: "Asia/Kolkata",
+  });
+}
+
 function normalizeStatus(status) {
   return (status || "planned").replaceAll("_", " ");
 }
@@ -669,7 +705,12 @@ function AdminDashboard() {
       const data = await handler(forms[formKey]);
       setStatus(data.message);
       setForms((current) => ({ ...current, [formKey]: emptyForms[formKey] }));
-      await loadDashboard();
+      if (formKey === "client" && data.client) {
+        setClients((current) => [data.client, ...current]);
+      }
+      if (formKey === "member" && data.member) {
+        setMembers((current) => [data.member, ...current]);
+      }
       routeTo(nextPath);
     } catch (requestError) {
       if (isSessionExpiredError(requestError)) {
@@ -703,7 +744,7 @@ function AdminDashboard() {
       setStatus(data.message);
       setForms((current) => ({ ...current, project: emptyForms.project }));
       setProjectMemberSearch("");
-      await loadDashboard();
+      setProjects((current) => [data.project, ...current]);
       routeTo("/projects");
     } catch (requestError) {
       if (isSessionExpiredError(requestError)) {
@@ -733,9 +774,9 @@ function AdminDashboard() {
     try {
       const data = await updateProjectMembers(selectedProject._id, selectedMemberIds);
       setSelectedProject(data.project);
+      setProjects((current) => current.map((project) => (project._id === data.project._id ? data.project : project)));
       setSelectedMemberIds((data.project.members || []).map((member) => member._id));
       setStatus(data.message);
-      await loadDashboard();
     } catch (requestError) {
       if (isSessionExpiredError(requestError)) {
         return;
@@ -843,8 +884,8 @@ function AdminDashboard() {
     try {
       const data = await addProjectResources(selectedProject._id, resources);
       setSelectedProject(data.project);
+      setProjects((current) => current.map((project) => (project._id === data.project._id ? data.project : project)));
       setStatus(data.message);
-      await loadDashboard();
     } catch (requestError) {
       if (isSessionExpiredError(requestError)) {
         return;
@@ -2129,7 +2170,7 @@ function ProjectDetailPage({
                             </div>
                             <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
                               <span>{ticket.assignedTo?.name || ticket.assignedTo?.email || "Unassigned"}</span>
-                              <span>{formatDate(ticket.deadline)}</span>
+                              <span>{formatDeadlineDate(ticket.deadline)}</span>
                             </div>
                           </article>
                         ))}
