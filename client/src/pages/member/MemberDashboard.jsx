@@ -1123,7 +1123,7 @@ function WorkspaceSkeleton() {
 function DashboardHome({ loading, onStatusChange, projects, tickets }) {
   const [query, setQuery] = useState("");
   const [projectId, setProjectId] = useState("");
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState("open");
   const [sort, setSort] = useState("updatedAt");
 
   const filteredTickets = useMemo(
@@ -1143,6 +1143,7 @@ function DashboardHome({ loading, onStatusChange, projects, tickets }) {
       title="Execution tickets"
     >
       <TicketFilters
+        defaultStatus="open"
         onProjectChange={setProjectId}
         onQueryChange={setQuery}
         onSortChange={setSort}
@@ -1154,7 +1155,7 @@ function DashboardHome({ loading, onStatusChange, projects, tickets }) {
         status={status}
       />
       <TicketTable
-        emptyCopy={query || projectId || status ? "No issues match your filters." : "No assigned tickets yet."}
+        emptyCopy={query || projectId || sort !== "updatedAt" || status !== "open" ? "No issues match your filters." : "No assigned tickets yet."}
         loading={loading}
         onStatusChange={onStatusChange}
         tickets={filteredTickets}
@@ -1427,9 +1428,9 @@ function SkillsModal({ member, onClose, onSkillChange, onSkillRemove, skills }) 
 
 function ProjectDetail({ activeTab = "overview", loading, onAddResources, onStatusChange, project, projectClient, requests, tickets, viewerMemberId = "" }) {
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState("open");
   const [sort, setSort] = useState("updatedAt");
-  const [assigneeScope, setAssigneeScope] = useState("all");
+  const [assigneeScope, setAssigneeScope] = useState("mine");
   const [resourceRows, setResourceRows] = useState([]);
 
   useEffect(() => {
@@ -1438,9 +1439,9 @@ function ProjectDetail({ activeTab = "overview", loading, onAddResources, onStat
 
   useEffect(() => {
     setQuery("");
-    setStatus("");
+    setStatus("open");
     setSort("updatedAt");
-    setAssigneeScope("all");
+    setAssigneeScope("mine");
   }, [project?._id, activeTab]);
 
   const projectTickets = useMemo(() => tickets || [], [tickets]);
@@ -1524,6 +1525,8 @@ function ProjectDetail({ activeTab = "overview", loading, onAddResources, onStat
         >
           <TicketFilters
             assigneeScope={assigneeScope}
+            defaultAssigneeScope="mine"
+            defaultStatus="open"
             onAssigneeScopeChange={setAssigneeScope}
             onProjectChange={() => {}}
             onQueryChange={setQuery}
@@ -1536,7 +1539,7 @@ function ProjectDetail({ activeTab = "overview", loading, onAddResources, onStat
             status={status}
           />
           <TicketTable
-            emptyCopy={query || status || assigneeScope === "mine" ? "No issues match your filters." : "No issues raised for this project yet."}
+            emptyCopy={query || sort !== "updatedAt" || status !== "open" || assigneeScope !== "mine" ? "No issues match your filters." : "No issues raised for this project yet."}
             loading={loading}
             onStatusChange={onStatusChange}
             showProject={false}
