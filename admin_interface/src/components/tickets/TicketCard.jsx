@@ -24,7 +24,8 @@ function getTicketStatusBorderClass(status) {
 }
 
 function TicketCard({ onClick, ticket }) {
-  const isDueSoon = hasLessThan24HoursLeft(ticket?.deadline);
+  const isDone = (ticket?.status || "").toLowerCase() === "done";
+  const isDueSoon = !isDone && hasLessThan24HoursLeft(ticket?.deadline);
 
   return (
     <button
