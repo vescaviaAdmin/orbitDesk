@@ -111,7 +111,8 @@ export default function TicketTable({
         </TableHeader>
         <TableBody>
           {tickets.map((ticket) => {
-            const isDueSoon = hasLessThan24HoursLeft(ticket.deadline);
+            const isDone = (ticket.status || "").toLowerCase() === "done";
+            const isDueSoon = !isDone && hasLessThan24HoursLeft(ticket.deadline);
             const ticketStatusRowClass = getTicketStatusRowClass(ticket.status);
             const assigneeLabel = getAssigneeLabel(ticket.assignedTo);
             const assigneeToneClass = getAssigneeToneClass(ticket.assignedTo);
