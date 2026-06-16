@@ -405,6 +405,35 @@ a {
     background: rgba(239, 68, 68, 0.08);
   }
 
+  .ticket-row-status-done {
+    --ticket-row-status-border: var(--success);
+  }
+
+  .ticket-row-status-in-progress {
+    --ticket-row-status-border: var(--warning);
+  }
+
+  .ticket-row-status-cancel {
+    --ticket-row-status-border: #111827;
+  }
+
+  .ticket-row-status-open {
+    --ticket-row-status-border: var(--primary);
+  }
+
+  .ticket-row-status-cell {
+    border-top: 1px solid var(--ticket-row-status-border);
+    border-bottom: 1px solid var(--ticket-row-status-border);
+  }
+
+  .ticket-row-status-cell-first {
+    border-left: 1px solid var(--ticket-row-status-border);
+  }
+
+  .ticket-row-status-cell-last {
+    border-right: 1px solid var(--ticket-row-status-border);
+  }
+
   .ticket-row-due-soon-cell {
     border-top: 1px solid var(--danger);
     border-bottom: 1px solid var(--danger);
@@ -633,6 +662,49 @@ a {
   }
 
   .badge-muted {
+    background: #eef2f7;
+    color: #475569;
+  }
+
+  .assignee-pill {
+    @apply inline-flex max-w-[10rem] min-w-[10rem] items-center justify-center overflow-hidden rounded-full px-3 py-1.5 text-xs font-semibold;
+  }
+
+  .assignee-pill-label {
+    @apply block w-full overflow-hidden text-ellipsis whitespace-nowrap text-center;
+  }
+
+  .assignee-pill-tone-1 {
+    background: #e6f0ff;
+    color: #1d4ed8;
+  }
+
+  .assignee-pill-tone-2 {
+    background: #ecfdf3;
+    color: #047857;
+  }
+
+  .assignee-pill-tone-3 {
+    background: #fff4e6;
+    color: #c2410c;
+  }
+
+  .assignee-pill-tone-4 {
+    background: #fdf2f8;
+    color: #be185d;
+  }
+
+  .assignee-pill-tone-5 {
+    background: #eef2ff;
+    color: #4338ca;
+  }
+
+  .assignee-pill-tone-6 {
+    background: #ecfeff;
+    color: #0f766e;
+  }
+
+  .assignee-pill-muted {
     background: #eef2f7;
     color: #475569;
   }

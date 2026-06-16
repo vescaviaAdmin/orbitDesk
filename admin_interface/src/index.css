@@ -319,6 +319,41 @@ a {
     @apply inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-sm text-slate-500;
   }
 
+  .ticket-card-status-done {
+    border-color: var(--success);
+  }
+
+  .ticket-card-status-done:hover {
+    border-color: var(--success);
+    box-shadow: 0 8px 24px -12px rgba(17, 122, 101, 0.28);
+  }
+
+  .ticket-card-status-in-progress {
+    border-color: var(--warning);
+  }
+
+  .ticket-card-status-in-progress:hover {
+    border-color: var(--warning);
+    box-shadow: 0 8px 24px -12px rgba(196, 122, 16, 0.28);
+  }
+
+  .ticket-card-status-cancel {
+    border-color: #111827;
+  }
+
+  .ticket-card-status-cancel:hover {
+    border-color: #111827;
+    box-shadow: 0 8px 24px -12px rgba(17, 24, 39, 0.24);
+  }
+
+  .ticket-card-status-open {
+    border-color: var(--primary);
+  }
+
+  .ticket-card-status-open:hover {
+    border-color: var(--primary);
+  }
+
   .ticket-card-due-soon {
     border-color: var(--danger);
   }
