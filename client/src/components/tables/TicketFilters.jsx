@@ -8,6 +8,10 @@ import {
 
 export default function TicketFilters({
   assigneeScope = "all",
+  defaultAssigneeScope = "all",
+  defaultProjectId = "all",
+  defaultSort = "updatedAt",
+  defaultStatus = "all",
   onAssigneeScopeChange,
   onProjectChange,
   onQueryChange,
@@ -21,8 +25,14 @@ export default function TicketFilters({
   sort = "updatedAt",
   status = "",
 }) {
+  const activeProjectId = projectId || "all";
+  const activeStatus = status || "all";
   const hasFilters = Boolean(
-    query || projectId || status || sort !== "updatedAt" || (showAssigneeScopeFilter && assigneeScope !== "all"),
+    query ||
+      (showProjectFilter && activeProjectId !== defaultProjectId) ||
+      activeStatus !== defaultStatus ||
+      sort !== defaultSort ||
+      (showAssigneeScopeFilter && assigneeScope !== defaultAssigneeScope),
   );
 
   return (
@@ -37,7 +47,7 @@ export default function TicketFilters({
       />
 
       {showProjectFilter ? (
-        <Select onValueChange={onProjectChange} value={projectId || "all"}>
+        <Select onValueChange={onProjectChange} value={activeProjectId}>
           <SelectTrigger aria-label="Filter by project" className="w-[180px]">
             <SelectValue placeholder="All projects" />
           </SelectTrigger>
@@ -50,9 +60,9 @@ export default function TicketFilters({
             ))}
           </SelectContent>
         </Select>
-      ) : null}
+        ) : null}
 
-      <Select onValueChange={onStatusChange} value={status || "all"}>
+      <Select onValueChange={onStatusChange} value={activeStatus}>
         <SelectTrigger aria-label="Filter by status" className="w-[160px]">
           <SelectValue placeholder="All statuses" />
         </SelectTrigger>
@@ -94,13 +104,13 @@ export default function TicketFilters({
           onClick={() => {
             onQueryChange("");
             if (showProjectFilter) {
-              onProjectChange("all");
+              onProjectChange(defaultProjectId);
             }
-            onStatusChange("all");
+            onStatusChange(defaultStatus);
             if (showAssigneeScopeFilter) {
-              onAssigneeScopeChange("all");
+              onAssigneeScopeChange(defaultAssigneeScope);
             }
-            onSortChange("updatedAt");
+            onSortChange(defaultSort);
           }}
           type="button"
         >

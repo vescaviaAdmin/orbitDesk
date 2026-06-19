@@ -1,11 +1,38 @@
 import { PriorityBadge, StatusBadge, TicketIdBadge, TypeBadge } from "../ui/Badges";
 import { cn, formatDate, formatDeadlineDate, getTicketKey, hasLessThan24HoursLeft } from "../../lib/utils";
 
+function getTicketStatusBorderClass(status) {
+  const normalized = (status || "open").toLowerCase();
+
+  if (normalized === "done") {
+    return "ticket-card-status-done";
+  }
+
+  if (normalized === "in_progress") {
+    return "ticket-card-status-in-progress";
+  }
+
+  if (normalized === "cancel") {
+    return "ticket-card-status-cancel";
+  }
+
+  if (normalized === "open") {
+    return "ticket-card-status-open";
+  }
+
+  return "";
+}
+
 function TicketCard({ onClick, ticket }) {
-  const isDueSoon = hasLessThan24HoursLeft(ticket?.deadline);
+  const isDone = (ticket?.status || "").toLowerCase() === "done";
+  const isDueSoon = !isDone && hasLessThan24HoursLeft(ticket?.deadline);
 
   return (
-    <button className={cn("ticket-card w-full text-left", isDueSoon && "ticket-card-due-soon")} onClick={onClick} type="button">
+    <button
+      className={cn("ticket-card w-full text-left", getTicketStatusBorderClass(ticket?.status), isDueSoon && "ticket-card-due-soon")}
+      onClick={onClick}
+      type="button"
+    >
       <div className="flex min-h-[168px] flex-col justify-between gap-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
