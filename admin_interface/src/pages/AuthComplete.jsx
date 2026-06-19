@@ -1,10 +1,6 @@
 import { useEffect } from "react";
 import { setAdminSession } from "../api/admin";
-
-function routeTo(path) {
-  window.history.replaceState({}, "", path);
-  window.dispatchEvent(new PopStateEvent("popstate"));
-}
+import { replaceRoute } from "../lib/navigation";
 
 function AuthComplete() {
   useEffect(() => {
@@ -12,16 +8,16 @@ function AuthComplete() {
     const serializedSession = params.get("session") || "";
 
     if (!serializedSession) {
-      routeTo("/login");
+      replaceRoute("/login");
       return;
     }
 
     try {
       const session = JSON.parse(serializedSession);
       setAdminSession(session);
-      routeTo(session.redirectTo || "/");
+      replaceRoute(session.redirectTo || "/");
     } catch {
-      routeTo("/login");
+      replaceRoute("/login");
     }
   }, []);
 

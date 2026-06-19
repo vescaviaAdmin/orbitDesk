@@ -14,7 +14,7 @@ import { requireAdmin } from "../shared/auth/guards.js";
 import { normalizeMemberCourses, normalizeMemberSkills } from "../shared/members/member-profile.utils.js";
 import { derivePhaseStatus, normalizePlanning, normalizeSprintStatus, resolveSprintSelection } from "../shared/projects/project.utils.js";
 import { normalizeResources, validateResources } from "../shared/resources/resource.utils.js";
-import { assertTicketCoreFields, assertTicketEnums, assertValidDeadline, normalizeTicketPayload, parseTicketDeadline } from "../shared/tickets/ticket.utils.js";
+import { assertTicketCoreFields, assertTicketEnums, assertValidDeadline, normalizeTicketPayload, parseTicketDeadline, populateTicketDetails, withTicketListDetails } from "../shared/tickets/ticket.utils.js";
 
 export function createAdminService(fastify) {
   const REQUEST_STATUSES = ["open", "reviewing", "closed"];
@@ -247,6 +247,15 @@ export function createAdminService(fastify) {
       return { issues };
     },
 
+    async listTickets(request) {
+      const admin = await requireAdmin(request, fastify);
+      const tickets = await withTicketListDetails(Ticket.find({ ownerAdmin: admin._id }).sort({ createdAt: -1 }), {
+        includeAdminCreator: true,
+      });
+
+      return { tickets };
+    },
+
     async getProject(request) {
       const admin = await requireAdmin(request, fastify);
       const project = await Project.findOne({ _id: request.params.projectId, ownerAdmin: admin._id })
@@ -261,12 +270,9 @@ export function createAdminService(fastify) {
         throw fastify.httpErrors.notFound("Project not found");
       }
 
-      const tickets = await Ticket.find({ project: project.id, ownerAdmin: admin._id })
-        .sort({ createdAt: -1 })
-        .populate("project", "name")
-        .populate("createdBy", "name email")
-        .populate("createdByAdmin", "name email")
-        .populate("assignedTo", "name email");
+      const tickets = await withTicketListDetails(Ticket.find({ project: project.id, ownerAdmin: admin._id }).sort({ createdAt: -1 }), {
+        includeAdminCreator: true,
+      });
 
       return {
         project,
@@ -379,9 +385,7 @@ export function createAdminService(fastify) {
         ownerAdmin: admin._id,
       });
 
-      await ticket.populate("createdByAdmin", "name email");
-      await ticket.populate("assignedTo", "name email");
-      await ticket.populate("project", "name");
+      await populateTicketDetails(ticket, { includeAdminCreator: true });
 
       runInBackground(
         fastify,
@@ -444,10 +448,7 @@ export function createAdminService(fastify) {
       ticket.urls = ticketInput.urls;
       await ticket.save();
 
-      await ticket.populate("createdByAdmin", "name email");
-      await ticket.populate("createdBy", "name email");
-      await ticket.populate("assignedTo", "name email");
-      await ticket.populate("project", "name");
+      await populateTicketDetails(ticket, { includeAdminCreator: true });
 
       runInBackground(
         fastify,

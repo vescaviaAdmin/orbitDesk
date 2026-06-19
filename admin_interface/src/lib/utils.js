@@ -61,8 +61,30 @@ export function hasLessThan24HoursLeft(deadline) {
   return timeLeft > 0 && timeLeft < 24 * 60 * 60 * 1000;
 }
 
+export function countPlannedTickets(planning = []) {
+  return planning.reduce(
+    (total, phase) =>
+      total +
+      (phase.sprints || []).reduce((sprintTotal, sprint) => sprintTotal + (sprint.tickets?.length || 0), 0),
+    0,
+  );
+}
+
 export function normalizeLabel(value, fallback = "unknown") {
   return (value || fallback).replaceAll("_", " ");
+}
+
+export function normalizeStatus(status, fallback = "open") {
+  return normalizeLabel(status, fallback);
+}
+
+export function getInitials(value, fallback = "OD") {
+  return (value || fallback)
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || fallback;
 }
 
 export function getTicketKey(ticket) {

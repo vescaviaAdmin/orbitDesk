@@ -28,6 +28,32 @@ export function normalizeTicketPayload(body = {}) {
   };
 }
 
+export function withTicketListDetails(query, { includeAdminCreator = false } = {}) {
+  let nextQuery = query
+    .populate("project", "name")
+    .populate("createdBy", "name email")
+    .populate("assignedTo", "name email");
+
+  if (includeAdminCreator) {
+    nextQuery = nextQuery.populate("createdByAdmin", "name email");
+  }
+
+  return nextQuery;
+}
+
+export async function populateTicketDetails(ticket, { includeAdminCreator = false } = {}) {
+  await ticket.populate("createdBy", "name email");
+
+  if (includeAdminCreator) {
+    await ticket.populate("createdByAdmin", "name email");
+  }
+
+  await ticket.populate("assignedTo", "name email");
+  await ticket.populate("project", "name");
+
+  return ticket;
+}
+
 export function assertTicketCoreFields({ title, assignedTo, deadline }, fastify) {
   if (!title || !assignedTo || !deadline) {
     throw fastify.httpErrors.badRequest("title, assignedTo, and deadline are required");

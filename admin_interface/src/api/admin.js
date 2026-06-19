@@ -125,6 +125,10 @@ export function listIssues() {
   return request("/admin/issues");
 }
 
+export function listTickets() {
+  return request("/admin/tickets");
+}
+
 export function getProject(projectId) {
   return request(`/admin/projects/${projectId}`);
 }

@@ -8,7 +8,7 @@ import { requireMember } from "../shared/auth/guards.js";
 import { normalizeMemberCourses, normalizeMemberSkills } from "../shared/members/member-profile.utils.js";
 import { hasProjectMember, resolveSprintSelection } from "../shared/projects/project.utils.js";
 import { normalizeResources, validateResources } from "../shared/resources/resource.utils.js";
-import { assertTicketCoreFields, assertTicketEnums, assertTicketStatus, assertValidAssigneeId, assertValidDeadline, normalizeTicketPayload } from "../shared/tickets/ticket.utils.js";
+import { assertTicketCoreFields, assertTicketEnums, assertTicketStatus, assertValidAssigneeId, assertValidDeadline, normalizeTicketPayload, populateTicketDetails, withTicketListDetails } from "../shared/tickets/ticket.utils.js";
 
 export function createMemberProjectService(fastify) {
   return {
@@ -109,10 +109,7 @@ export function createMemberProjectService(fastify) {
         throw fastify.httpErrors.notFound("Project not found");
       }
 
-      const tickets = await Ticket.find({ project: project._id, ownerAdmin: member.ownerAdmin })
-        .sort({ createdAt: -1 })
-        .populate("createdBy", "name email")
-        .populate("assignedTo", "name email");
+      const tickets = await withTicketListDetails(Ticket.find({ project: project._id, ownerAdmin: member.ownerAdmin }).sort({ createdAt: -1 }));
       const requests = await Request.find({ project: project._id, ownerAdmin: member.ownerAdmin })
         .sort({ createdAt: -1 })
         .populate("createdBy", "name email");
@@ -131,11 +128,7 @@ export function createMemberProjectService(fastify) {
 
     async listTickets(request) {
       const member = await requireMember(request, fastify);
-      const tickets = await Ticket.find({ assignedTo: member._id, ownerAdmin: member.ownerAdmin })
-        .sort({ createdAt: -1 })
-        .populate("project", "name")
-        .populate("createdBy", "name email")
-        .populate("assignedTo", "name email");
+      const tickets = await withTicketListDetails(Ticket.find({ assignedTo: member._id, ownerAdmin: member.ownerAdmin }).sort({ createdAt: -1 }));
 
       return { tickets };
     },
@@ -202,9 +195,7 @@ export function createMemberProjectService(fastify) {
         ownerAdmin: member.ownerAdmin,
       });
 
-      await ticket.populate("createdBy", "name email");
-      await ticket.populate("assignedTo", "name email");
-      await ticket.populate("project", "name");
+      await populateTicketDetails(ticket);
 
       runInBackground(
         fastify,
@@ -289,9 +280,7 @@ export function createMemberProjectService(fastify) {
       ticket.urls = ticketInput.urls;
       await ticket.save();
 
-      await ticket.populate("createdBy", "name email");
-      await ticket.populate("createdByAdmin", "name email");
-      await ticket.populate("assignedTo", "name email");
+      await populateTicketDetails(ticket, { includeAdminCreator: true });
       await ticket.populate({
         path: "project",
         select: "name clientEmail status description members",

@@ -57,6 +57,15 @@ export function hasLessThan24HoursLeft(deadline) {
   return timeLeft > 0 && timeLeft < 24 * 60 * 60 * 1000;
 }
 
+export function getInitials(value, fallback = "OD") {
+  return (value || fallback)
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || fallback;
+}
+
 export function normalizeStatus(status) {
   return (status || "open").replaceAll("_", " ");
 }
@@ -82,7 +91,7 @@ export function getProjectTone(status) {
 export function getStatusTone(status) {
   const normalized = (status || "open").toLowerCase();
 
-  if (["done", "completed", "closed"].includes(normalized)) {
+  if (["resolved", "done", "completed", "closed"].includes(normalized)) {
     return "completed";
   }
 

@@ -25,6 +25,7 @@ import {
   filterAndSortTickets,
   formatDate,
   formatDeadlineDate,
+  getInitials,
   getProjectTone,
   getStatusTone,
   normalizeStatus,
@@ -119,15 +120,6 @@ function resolveCurrentSprint(phase) {
       return start <= today && today <= end;
     }) || phase.sprints[0]
   );
-}
-
-function getInitials(value) {
-  return (value || "OD")
-    .split(" ")
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("") || "OD";
 }
 
 function createEmptySkill() {
