@@ -247,6 +247,18 @@ export function createAdminService(fastify) {
       return { issues };
     },
 
+    async listTickets(request) {
+      const admin = await requireAdmin(request, fastify);
+      const tickets = await Ticket.find({ ownerAdmin: admin._id })
+        .sort({ createdAt: -1 })
+        .populate("project", "name")
+        .populate("createdBy", "name email")
+        .populate("createdByAdmin", "name email")
+        .populate("assignedTo", "name email");
+
+      return { tickets };
+    },
+
     async getProject(request) {
       const admin = await requireAdmin(request, fastify);
       const project = await Project.findOne({ _id: request.params.projectId, ownerAdmin: admin._id })

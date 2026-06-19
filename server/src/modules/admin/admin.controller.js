@@ -28,6 +28,9 @@ export function createAdminController(fastify) {
     listIssues(request) {
       return service.listIssues(request);
     },
+    listTickets(request) {
+      return service.listTickets(request);
+    },
     getProject(request) {
       return service.getProject(request);
     },
