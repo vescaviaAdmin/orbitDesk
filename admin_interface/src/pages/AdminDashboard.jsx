@@ -29,7 +29,9 @@ import ClientOnboardingForm from "../components/clients/ClientOnboardingForm";
 import ProjectCard from "../components/projects/ProjectCard";
 import ProjectOnboardingForm from "../components/projects/ProjectOnboardingForm";
 import ProjectWorkspacePage from "../components/projects/ProjectWorkspacePage";
+import { routeTo } from "../lib/navigation";
 import { isSessionExpiredError } from "../lib/session";
+import { countPlannedTickets, formatDate, formatDeadlineDate, getInitials, normalizeStatus as formatStatus } from "../lib/utils";
 
 const emptyForms = {
   client: { name: "", email: "", company: "", phone: "", agreement: null },
@@ -85,81 +87,6 @@ function createPlanningPhase() {
   };
 }
 
-function countPlannedTickets(planning = []) {
-  return planning.reduce(
-    (total, phase) =>
-      total +
-      (phase.sprints || []).reduce((sprintTotal, sprint) => sprintTotal + (sprint.tickets?.length || 0), 0),
-    0,
-  );
-}
-
-function routeTo(path) {
-  window.history.pushState({}, "", path);
-  window.dispatchEvent(new PopStateEvent("popstate"));
-}
-
-function formatDate(value) {
-  if (!value) {
-    return "-";
-  }
-
-  return new Date(value).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function parseDeadlineToIST(value) {
-  if (!value) {
-    return null;
-  }
-
-  if (typeof value === "string") {
-    const dateMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (dateMatch) {
-      const [, year, month, day] = dateMatch;
-      return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), 18, 29, 59, 999));
-    }
-  }
-
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : value;
-  }
-
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function formatDeadlineDate(value) {
-  const parsed = parseDeadlineToIST(value);
-
-  if (!parsed) {
-    return "-";
-  }
-
-  return parsed.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    timeZone: "Asia/Kolkata",
-  });
-}
-
-function normalizeStatus(status) {
-  return (status || "planned").replaceAll("_", " ");
-}
-
-function getInitials(value) {
-  return (value || "OD")
-    .split(" ")
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("");
-}
-
 function getPriorityFromTicket(ticket) {
   if (ticket?.priority) {
     return ticket.priority.charAt(0).toUpperCase() + ticket.priority.slice(1);
@@ -173,6 +100,10 @@ function getPriorityFromTicket(ticket) {
     return "Medium";
   }
   return "Normal";
+}
+
+function normalizeStatus(status) {
+  return formatStatus(status, "planned");
 }
 
 function percentComplete(project) {

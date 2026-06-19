@@ -1,10 +1,6 @@
 import { useState } from "react";
 import { forgotAdminPassword, loginAdmin, setAdminSession } from "../api/admin";
-
-function routeTo(path) {
-  window.history.pushState({}, "", path);
-  window.dispatchEvent(new PopStateEvent("popstate"));
-}
+import { routeTo } from "../lib/navigation";
 
 function AdminLogin() {
   const [form, setForm] = useState({ email: "", password: "" });

@@ -1,6 +1,7 @@
 import { cloneElement, useEffect, useId, useMemo, useState } from "react";
 import { createClientIssue, listClientIssues, listClientProjects } from "../../api/client";
 import { useToast } from "../../components/ui/Toast";
+import { formatDate, getInitials, getStatusTone, normalizeStatus } from "../../lib/member-utils";
 import { clearPortalSession, getPortalSession, isSessionExpiredError, redirectToPortalLogin } from "../../lib/session";
 
 const emptyIssueForm = {
@@ -24,49 +25,6 @@ const VIEW_TITLES = {
   raise: "Raise Issue",
   updates: "Updates",
 };
-
-function getInitials(value) {
-  return (value || "OD")
-    .split(" ")
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("") || "OD";
-}
-
-function formatDate(value) {
-  if (!value) {
-    return "-";
-  }
-
-  return new Date(value).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function normalizeStatus(status) {
-  return (status || "open").replaceAll("_", " ");
-}
-
-function getStatusTone(status) {
-  const normalized = (status || "open").toLowerCase();
-
-  if (["resolved", "done", "completed", "closed"].includes(normalized)) {
-    return "completed";
-  }
-
-  if (["in_progress", "active", "assigned"].includes(normalized)) {
-    return "assigned";
-  }
-
-  if (["paused", "blocked"].includes(normalized)) {
-    return "pending";
-  }
-
-  return "pending";
-}
 
 function getProjectEta(project) {
   const dates = (project.planning || [])
