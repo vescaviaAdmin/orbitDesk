@@ -14,6 +14,7 @@ import {
   listIssues,
   listMembers,
   listProjects,
+  listTickets,
   listRequests,
   updateAdminRequestStatus,
   updateProjectMembers,
@@ -201,6 +202,7 @@ function AdminDashboard() {
   const [projects, setProjects] = useState([]);
   const [requests, setRequests] = useState([]);
   const [issues, setIssues] = useState([]);
+  const [tickets, setTickets] = useState([]);
   const [selectedProject, setSelectedProject] = useState(null);
   const [selectedMemberDetail, setSelectedMemberDetail] = useState(null);
   const [selectedMemberProjects, setSelectedMemberProjects] = useState([]);
@@ -213,6 +215,8 @@ function AdminDashboard() {
   const [memberDirectorySearch, setMemberDirectorySearch] = useState("");
   const [requestSearch, setRequestSearch] = useState("");
   const [issueSearch, setIssueSearch] = useState("");
+  const [ticketProjectFilter, setTicketProjectFilter] = useState("");
+  const [ticketStatusFilter, setTicketStatusFilter] = useState("");
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -309,6 +313,29 @@ function AdminDashboard() {
       : issues;
   }, [issueSearch, issues]);
 
+  const filteredTickets = useMemo(() => {
+    const search = issueSearch.trim().toLowerCase();
+
+    return tickets.filter((ticket) => {
+      const matchesSearch = search
+        ? [
+            ticket.title,
+            ticket.description,
+            ticket.status,
+            ticket.project?.name,
+            ticket.assignedTo?.name,
+            ticket.assignedTo?.email,
+          ]
+            .filter(Boolean)
+            .some((value) => value.toLowerCase().includes(search))
+        : true;
+      const matchesProject = ticketProjectFilter ? ticket.project?._id === ticketProjectFilter : true;
+      const matchesStatus = ticketStatusFilter ? ticket.status === ticketStatusFilter : true;
+
+      return matchesSearch && matchesProject && matchesStatus;
+    });
+  }, [issueSearch, ticketProjectFilter, ticketStatusFilter, tickets]);
+
   useEffect(() => {
     function handleRouteChange() {
       setPath(window.location.pathname);
@@ -326,18 +353,20 @@ function AdminDashboard() {
 
   async function loadDashboard() {
     try {
-      const [clientData, memberData, projectData, requestData, issueData] = await Promise.all([
+      const [clientData, memberData, projectData, requestData, issueData, ticketData] = await Promise.all([
         listClients(),
         listMembers(),
         listProjects(),
         listRequests(),
         listIssues(),
+        listTickets(),
       ]);
       setClients(clientData.clients || []);
       setMembers(memberData.members || []);
       setProjects(projectData.projects || []);
       setRequests(requestData.requests || []);
       setIssues(issueData.issues || []);
+      setTickets(ticketData.tickets || []);
     } catch (requestError) {
       if (isSessionExpiredError(requestError)) {
         return;
@@ -1203,7 +1232,16 @@ function AdminDashboard() {
           ) : null}
 
           {isIssuesPath ? (
-            <IssuesPage issues={filteredIssues} searchValue={issueSearch} onSearch={setIssueSearch} />
+            <IssuesPage
+              projects={projects}
+              projectFilter={ticketProjectFilter}
+              searchValue={issueSearch}
+              statusFilter={ticketStatusFilter}
+              tickets={filteredTickets}
+              onProjectFilterChange={setTicketProjectFilter}
+              onSearch={setIssueSearch}
+              onStatusFilterChange={setTicketStatusFilter}
+            />
           ) : null}
     </AppShell>
   );
@@ -1878,24 +1916,55 @@ function RequestsPage({ requests, onSearch, onStatusChange, searchValue, updatin
   );
 }
 
-function IssuesPage({ issues, onSearch, searchValue }) {
+function IssuesPage({
+  onProjectFilterChange,
+  onSearch,
+  onStatusFilterChange,
+  projectFilter,
+  projects,
+  searchValue,
+  statusFilter,
+  tickets,
+}) {
   return (
-    <DirectoryPage countLabel={`${issues.length} total`} onSearch={onSearch} searchPlaceholder="Search tickets" searchValue={searchValue} title="Tickets">
+    <DirectoryPage countLabel={`${tickets.length} total`} onSearch={onSearch} searchPlaceholder="Search tickets" searchValue={searchValue} title="Tickets">
+      <div className="mt-6 grid gap-3 md:grid-cols-2">
+        <select className="input-field mt-0" onChange={(event) => onProjectFilterChange(event.target.value)} value={projectFilter}>
+          <option value="">All projects</option>
+          {projects.map((project) => (
+            <option key={project._id} value={project._id}>
+              {project.name}
+            </option>
+          ))}
+        </select>
+        <select className="input-field mt-0" onChange={(event) => onStatusFilterChange(event.target.value)} value={statusFilter}>
+          <option value="">All statuses</option>
+          <option value="open">Open</option>
+          <option value="in_progress">In Progress</option>
+          <option value="done">Done</option>
+          <option value="cancel">Cancel</option>
+        </select>
+      </div>
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
-        {issues.map((issue) => (
-          <article className="surface-muted p-5" key={issue._id}>
+        {tickets.map((ticket) => (
+          <article className="surface-muted p-5" key={ticket._id}>
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h3 className="font-semibold text-slate-900">{issue.title}</h3>
-                <p className="muted-text mt-1 text-sm">{issue.project?.name || "Project"}</p>
+                <h3 className="font-semibold text-slate-900">{ticket.title}</h3>
+                <p className="muted-text mt-1 text-sm">{ticket.project?.name || "Project"}</p>
               </div>
-              <StatusBadge status={issue.status} />
+              <StatusBadge status={ticket.status} />
             </div>
-            <p className="muted-text mt-3 text-sm">{issue.description || "No description"}</p>
-            <p className="muted-text mt-3 text-sm">Client: {issue.client?.name || issue.client?.email || "-"}</p>
+            <p className="muted-text mt-3 text-sm">{ticket.description || "No description"}</p>
+            <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+              <span className="muted-text">Assignee: {ticket.assignedTo?.name || ticket.assignedTo?.email || "Unassigned"}</span>
+              <span className="glass-chip">{normalizeStatus(ticket.status)}</span>
+              <span className="glass-chip">{formatDeadlineDate(ticket.deadline)}</span>
+            </div>
           </article>
         ))}
       </div>
+      {!tickets.length ? <EmptyStatePanel className="mt-6" copy="No tickets match the current search or filters." title="No tickets found" /> : null}
     </DirectoryPage>
   );
 }

@@ -11,6 +11,7 @@ async function adminRoutes(fastify) {
   fastify.get("/admin/requests", controller.listRequests);
   fastify.put("/admin/requests/:requestId/status", controller.updateRequestStatus);
   fastify.get("/admin/issues", controller.listIssues);
+  fastify.get("/admin/tickets", controller.listTickets);
   fastify.get("/admin/projects/:projectId", controller.getProject);
   fastify.put("/admin/projects/:projectId/members", controller.updateProjectMembers);
   fastify.put("/admin/projects/:projectId/phases/:phaseIndex/sprints/:sprintIndex/status", controller.updateSprintStatus);
